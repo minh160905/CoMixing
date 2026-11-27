@@ -58,15 +58,7 @@ class Search:
         self.killers = [[None, None] for _ in range(max_depth + MAX_Q_PLY + 2)]
         self.history = [[0] * (SIZE * SIZE) for _ in range(2)]
         self.root_best = None
-        fallback = sorted(legal, key=lambda move: self._tactical_score(board, move), reverse=True)
-        best = fallback[0]
-        for move in fallback:
-            undo = board.push_legal(move)
-            losing = board.winner is not None
-            board.pop(move, undo)
-            if not losing:
-                best = move
-                break
+        best = max(legal, key=lambda move: self._tactical_score(board, move))
         score, completed = evaluate(board), 0
         for depth in range(1, max_depth + 1):
             try:
@@ -122,25 +114,19 @@ class Search:
             if undo is None:
                 continue
             # The move can also uncover a check from a different piece.
-            checking = board.winner is None and board.in_check()
-            face_loss = board.winner is not None
+            checking = board.in_check()
             board.pop(move, undo)
             priority = 10_000 if move == killers[0] else 9_000 if move == killers[1] else 0
             priority += min(8_000, history[move.src * SIZE + move.dst])
-            priority += 20_000 * checking - 40_000 * face_loss
-            ordered.append((priority, move, -1 if face_loss else int(checking)))
+            priority += 20_000 * checking
+            ordered.append((priority, move, checking))
         ordered.sort(key=lambda pair: pair[0], reverse=True)
-        for _, move, status in ordered:
-            yield move, status
+        for _, move, gives_check in ordered:
+            yield move, gives_check
 
     @staticmethod
-    def _play(board, move, status):
-        if status is None:
-            return board.push_legal(move)
-        undo = board.push(move)
-        if status == -1:
-            board.winner = board.turn
-        return undo
+    def _play(board, move, gives_check):
+        return board.push_legal(move) if gives_check is None else board.push(move)
 
     def _entry(self, board):
         entry = self.table[board.key & self.table_mask]
@@ -163,8 +149,6 @@ class Search:
         if depth == 0:
             return self._quiescence(board, alpha, beta, ply, 0)
         self._visit()
-        if board.winner is not None:
-            return MATE - ply if board.turn == board.winner else ply - MATE
         if board.draw_reason() is not None:
             return ply - MATE if board.in_check() and not board.has_legal_move() else 0
 
@@ -188,13 +172,13 @@ class Search:
         tt_move = entry.move if entry is not None else None
         legal_count = 0
         reduce_late = depth >= 3 and ply > 0 and not board.in_check()
-        for move, status in self._ordered_moves(board, ply, tt_move):
-            undo = self._play(board, move, status)
+        for move, gives_check in self._ordered_moves(board, ply, tt_move):
+            undo = self._play(board, move, gives_check)
             if undo is None:
                 continue
             legal_count += 1
             try:
-                if reduce_late and legal_count > 7 and status == 0 and abs(alpha) < MATE_THRESHOLD:
+                if reduce_late and legal_count > 7 and gives_check is False and abs(alpha) < MATE_THRESHOLD:
                     # Verify any late quiet move that improves the reduced search.
                     score = -self._negamax(board, depth - 2, -alpha - 1, -alpha, ply + 1)
                     if score > alpha:
@@ -227,8 +211,6 @@ class Search:
 
     def _quiescence(self, board, alpha, beta, ply, q_ply):
         self._visit()
-        if board.winner is not None:
-            return MATE - ply if board.turn == board.winner else ply - MATE
         in_check = board.in_check()
         if board.draw_reason() is not None:
             return ply - MATE if in_check and not board.has_legal_move() else 0
@@ -246,8 +228,8 @@ class Search:
             if best >= beta:
                 return best
             alpha = max(alpha, best)
-        for move, status in self._ordered_moves(board, ply, tactical_only=not in_check):
-            undo = self._play(board, move, status)
+        for move, gives_check in self._ordered_moves(board, ply, tactical_only=not in_check):
+            undo = self._play(board, move, gives_check)
             if undo is None:
                 continue
             try:

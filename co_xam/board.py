@@ -17,7 +17,7 @@ DIAGONAL = ((-1, -1), (-1, 1), (1, -1), (1, 1))
 KNIGHT = ((-2, -1), (-2, 1), (2, -1), (2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2))
 PROMOTIONS = (WQ, WR, WB, WN)
 QUEENSIDE, KINGSIDE = 1, 2
-FACE_LOSS, CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS = range(5)
+CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS = range(1, 5)
 PIECE_NAMES = (
     "", "Vua", "Hậu", "Xe", "Tượng", "Mã", "Tốt",
     "Tướng", "Xe", "Pháo", "Mã", "Tượng", "Sĩ", "Tốt",
@@ -186,7 +186,6 @@ class Undo:
     rights: int
     quiet: int
     key: int
-    winner: int | None
     history_key: int
     previous_counts: dict | None
 
@@ -209,7 +208,6 @@ class Board:
         self.rights = (QUEENSIDE | KINGSIDE if starting else 0) if rights is None else rights
         self.ply = ply
         self.quiet = 0
-        self.winner = None
         if starting:
             pieces = {
                 **{square(0, c): p for c, p in enumerate((WR, WN, WB, WQ, WK, WB, WN, WR))},
@@ -239,7 +237,6 @@ class Board:
         snapshot.rights = self.rights
         snapshot.ply = self.ply
         snapshot.quiet = self.quiet
-        snapshot.winner = self.winner
         snapshot.key = self.key
         snapshot.counts = self.counts.copy()
         snapshot.history_key = self.history_key
@@ -375,7 +372,7 @@ class Board:
         side = self.turn
         quiet = not capture and piece not in (WP, XP)
         reversible = quiet or (not capture and not move.promotion and src // FILES == dst // FILES)
-        undo = Undo(piece, capture, self.rights, self.quiet, self.key, self.winner, self.history_key, None)
+        undo = Undo(piece, capture, self.rights, self.quiet, self.key, self.history_key, None)
         placed = move.promotion or piece
         cells[src], cells[dst] = EMPTY, placed
         self.positions[side].remove(src)
@@ -420,15 +417,9 @@ class Board:
 
     def push_legal(self, move):
         undo = self.push(move)
-        if self.in_check(1 - self.turn):
+        if self.in_check(1 - self.turn) or self.royals_face():
             self.pop(move, undo)
             return None
-        if self.royals_face():
-            if undo.piece == WK and move.rook_from < 0:
-                self.winner = XIANGQI
-            else:
-                self.pop(move, undo)
-                return None
         return undo
 
     def pop(self, move, undo):
@@ -454,12 +445,10 @@ class Board:
             self.positions[side].remove(move.rook_to)
             self.positions[side].add(move.rook_from)
         self.turn, self.rights, self.quiet = side, undo.rights, undo.quiet
-        self.key, self.winner, self.history_key = undo.key, undo.winner, undo.history_key
+        self.key, self.history_key = undo.key, undo.history_key
         self.ply -= 1
 
     def legal_moves(self):
-        if self.winner is not None:
-            return []
         legal = []
         for move in self.pseudo_moves():
             undo = self.push_legal(move)
@@ -469,8 +458,6 @@ class Board:
         return legal
 
     def has_legal_move(self):
-        if self.winner is not None:
-            return False
         for move in self.iter_pseudo_moves():
             undo = self.push_legal(move)
             if undo is not None:
@@ -486,8 +473,6 @@ class Board:
         return None
 
     def outcome(self, legal=None):
-        if self.winner is not None:
-            return Outcome(self.winner, FACE_LOSS)
         if not (self.legal_moves() if legal is None else legal):
             if self.in_check():
                 return Outcome(1 - self.turn, CHECKMATE)

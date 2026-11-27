@@ -9,7 +9,7 @@ from tkinter import font, ttk
 from . import GAME_NAME
 from .board import (
     CHESS, XIANGQI, SIDE, SIDE_NAMES, PIECE_NAMES,
-    FACE_LOSS, CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS,
+    CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS,
     Board, coordinates,
 )
 from .board_view import BoardView, WEST_MARKS, STAGE, LEGAL, CAPTURE, LAST_MOVE
@@ -32,7 +32,6 @@ EAST = "#94362e"
 EAST_TINT = "#f3e1da"
 
 REASONS = {
-    FACE_LOSS: "Lộ mặt Tướng",
     CHECKMATE: "Chiếu hết",
     STALEMATE: "Hết nước đi hợp lệ",
     REPETITION: "Thế cờ lặp lại 3 lần",
@@ -53,7 +52,7 @@ RULES = (
     ("Pháo", "Pháo cần đúng một quân làm ngòi khi ăn quân. Trong ba lượt đầu "
      "của bên cờ tướng, ngòi phải là quân cờ tướng."),
     ("Nhập thành và lộ mặt Tướng", "Vua cờ vua được nhập thành theo luật cờ vua. "
-     "Nếu Vua đi làm lộ mặt Tướng, bên cờ tướng thắng. Các nước khác làm hai quân lộ mặt bị cấm."),
+     "Nước đi của bất kỳ bên nào làm Vua và Tướng lộ mặt đều không hợp lệ."),
     ("Kết thúc ván", "Chiếu hết thắng ván. Ván hòa khi bên đến lượt hết nước hợp lệ "
      "mà không bị chiếu, thế cờ lặp lại ba lần hoặc có 100 nước liên tiếp không ăn quân và không đi Tốt."),
 )

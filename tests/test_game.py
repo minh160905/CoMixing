@@ -3,7 +3,7 @@ from threading import Event
 import unittest
 
 from co_xam.board import (
-    CHESS, XIANGQI, CHECKMATE, FACE_LOSS, REPETITION, STALEMATE, QUEENSIDE, KINGSIDE,
+    CHESS, XIANGQI, CHECKMATE, REPETITION, STALEMATE, QUEENSIDE, KINGSIDE,
     WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP,
     Board, Move, Outcome, PROMOTIONS, square,
 )
@@ -24,7 +24,7 @@ def moves_from(board, row, col):
 def signature(board):
     return (
         board.cells.copy(), [positions.copy() for positions in board.positions],
-        board.kings.copy(), board.turn, board.rights, board.ply, board.quiet, board.winner,
+        board.kings.copy(), board.turn, board.rights, board.ply, board.quiet,
         board.key, board.history_key, board.counts.copy(),
     )
 
@@ -166,21 +166,33 @@ class BoardRules(unittest.TestCase):
             board.pop(move, undo)
             self.assertEqual(signature(board), before)
 
-    def test_face_exposure_loses_only_on_western_king_move(self):
-        board = Board({square(0, 2): WK, square(8, 4): XK}, turn=CHESS, ply=6)
-        move = Move(square(0, 2), square(0, 3))
-        self.assertIn(move, board.legal_moves())
-        before = signature(board)
-        undo = board.push_legal(move)
-        self.assertEqual(board.outcome(), Outcome(XIANGQI, FACE_LOSS))
-        board.pop(move, undo)
-        self.assertEqual(signature(board), before)
+    def test_either_royal_is_forbidden_from_exposing_the_facing_line(self):
+        cases = (
+            (CHESS, square(0, 2), square(8, 4), Move(square(0, 2), square(0, 3))),
+            (XIANGQI, square(0, 4), square(8, 3), Move(square(8, 3), square(7, 4))),
+        )
+        for turn, western, eastern, move in cases:
+            with self.subTest(turn=turn):
+                board = Board({western: WK, eastern: XK}, turn=turn, ply=6)
+                before = signature(board)
+                self.assertIn(move, board.pseudo_moves())
+                self.assertNotIn(move, board.legal_moves())
+                self.assertIsNone(board.push_legal(move))
+                self.assertEqual(signature(board), before)
+                self.assertIsNone(board.outcome())
+                bot = Search(table_bits=8).analyze(board, 1, max_depth=2)
+                self.assertIn(bot.move, board.legal_moves())
 
-        blocked = Board({square(0, 3): WK, square(8, 4): XK, square(2, 3): WR}, turn=CHESS, ply=6)
-        self.assertNotIn(Move(square(2, 3), square(2, 2)), blocked.legal_moves())
-        bot = Search(table_bits=8).analyze(board, 1, max_depth=2)
-        self.assertIn(bot.move, board.legal_moves())
-        self.assertNotEqual(bot.move.dst % 9, 3)
+    def test_blocking_piece_may_only_leave_when_another_piece_keeps_the_line_closed(self):
+        pieces = {square(0, 4): WK, square(8, 4): XK, square(3, 3): WQ, square(3, 0): XC}
+        capture = Move(square(3, 3), square(3, 0))
+        board = Board(pieces, turn=CHESS, ply=6)
+        self.assertIn(capture, board.pseudo_moves(tactical_only=True))
+        self.assertNotIn(capture, board.legal_moves())
+        self.assertIsNone(board.outcome())
+
+        covered = Board({**pieces, square(1, 4): WP}, turn=CHESS, ply=6)
+        self.assertIn(capture, covered.legal_moves())
 
     def test_mate_and_stalemate(self):
         mate = position((0, 2, XR), (1, 0, XR), (1, 1, XP))
