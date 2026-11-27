@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#13201d">
+  <meta name="description" content="Chơi cờ vua × cờ tướng, hai người hoặc đấu bot trong Akbar VS HanXin.">
+  <title>Akbar VS HanXin</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/game.mjs"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="top-inner">
+      <div class="brand">
+        <span class="crest" aria-hidden="true"><span>♞</span><span>帥</span></span>
+        <div>
+          <h1>Akbar VS HanXin</h1>
+          <p>Cờ vua × Cờ tướng</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button type="button" data-dialog="rules">Luật chơi</button>
+        <button type="button" data-dialog="options">Tùy chọn</button>
+        <button class="primary" id="new-game" type="button">Ván mới</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="arena">
+    <section class="playing-area surface" aria-label="Khu vực bàn cờ">
+      <div class="seat west" id="seat-west">
+        <span class="seat-icon" aria-hidden="true">♚</span>
+        <div class="seat-name">Cờ vua <span class="seat-role"></span></div>
+        <span class="seat-status"></span>
+      </div>
+      <div class="board-wrap">
+        <canvas id="board" tabindex="0" aria-label="Bàn cờ vua và cờ tướng"
+          aria-describedby="board-instructions">Trình duyệt cần hỗ trợ Canvas để hiển thị bàn cờ.</canvas>
+        <p id="board-instructions" class="sr-only">Chọn hoặc kéo thả quân để đi. Dùng phím mũi tên để di chuyển con trỏ và Enter để chọn. Dùng chuột phải để đánh dấu.</p>
+        <p id="square-info" class="sr-only" aria-live="polite"></p>
+      </div>
+      <div class="seat east" id="seat-east">
+        <span class="seat-icon" aria-hidden="true">帥</span>
+        <div class="seat-name">Cờ tướng <span class="seat-role"></span></div>
+        <span class="seat-status"></span>
+      </div>
+      <div class="legend" aria-label="Chú giải bàn cờ">
+        <span><i class="dot"></i>Nước hợp lệ</span>
+        <span><i class="capture"></i>Ăn quân</span>
+        <span><i class="recent"></i>Nước vừa đi</span>
+        <span><i class="planned"></i>PreMove</span>
+      </div>
+    </section>
+
+    <aside class="game-panel" aria-label="Điều khiển và lịch sử">
+      <section class="surface turn-card" aria-live="polite">
+        <div id="turn-symbol" class="turn-symbol" aria-hidden="true">♞</div>
+        <div class="turn-body">
+          <p class="turn-caption" id="turn-caption">Lượt đi</p>
+          <h2 id="turn-title">Đang tải bàn cờ</h2>
+          <p class="status-detail" id="detail"></p>
+          <button type="button" class="compact" id="retry" hidden>Thử lại</button>
+        </div>
+      </section>
+
+      <section class="surface settings" aria-label="Thiết lập ván">
+        <fieldset>
+          <legend>Bộ luật</legend>
+          <div class="segmented">
+            <button type="button" data-rules="classic" aria-pressed="true">Cổ điển</button>
+            <button type="button" data-rules="balanced" aria-pressed="false">Cân bằng</button>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Chế độ chơi</legend>
+          <div class="segmented">
+            <button type="button" data-mode="local" aria-pressed="true">Hai người</button>
+            <button type="button" data-mode="bot" aria-pressed="false">Đấu máy</button>
+          </div>
+        </fieldset>
+        <div id="bot-settings" hidden>
+          <fieldset>
+            <legend>Bạn cầm</legend>
+            <div class="segmented">
+              <button type="button" data-human="0" aria-pressed="true">Cờ vua</button>
+              <button type="button" data-human="1" aria-pressed="false">Cờ tướng</button>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Thời gian bot</legend>
+            <div class="segmented">
+              <button type="button" data-seconds="1" aria-pressed="false">1 giây</button>
+              <button type="button" data-seconds="3" aria-pressed="true">3 giây</button>
+              <button type="button" data-seconds="8" aria-pressed="false">8 giây</button>
+            </div>
+          </fieldset>
+        </div>
+      </section>
+
+      <section class="surface history" aria-labelledby="history-title">
+        <div class="history-head">
+          <h2 id="history-title">Nước đi</h2>
+          <span id="move-count">0 nước</span>
+        </div>
+        <div class="log-wrap" id="log-wrap" tabindex="0" aria-label="Lịch sử nước đi">
+          <table>
+            <thead><tr><th scope="col">Số</th><th scope="col">Quân</th><th scope="col">Di chuyển</th></tr></thead>
+            <tbody id="move-log"></tbody>
+          </table>
+          <p class="empty" id="empty-log">Chưa có nước đi</p>
+        </div>
+        <button type="button" id="undo" disabled>Hoàn tác</button>
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="rules" aria-labelledby="rules-title">
+    <div class="dialog-head"><h2 id="rules-title">Luật chơi</h2></div>
+    <div class="dialog-content">
+      <h3>Bắt đầu và qua sông</h3>
+      <p>Cờ tướng đi trước. Mỗi nước vượt sông dừng ở bờ đối diện. Ô cờ vua nối với hai giao điểm kề nó trên bờ cờ tướng. Giao điểm ngoài cùng chỉ nối với một ô cờ vua.</p>
+      <h3>Cổ điển và Cân bằng</h3>
+      <p>Chế độ Cân bằng giữ Vua cờ vua trong cung 4 × 3 từ c8 đến f6. Đường viền xanh trên bàn đánh dấu cung. Vua được nhập thành xa về c8 khi đủ điều kiện. Mỗi bộ luật có một ván riêng trong phiên chơi.</p>
+      <h3>Quân đi sang nửa bàn bên kia</h3>
+      <p>Hậu và Tượng cờ vua đi tối đa hai bước khi xuất phát trên phần cờ tướng. Mã bị chặn chân trên phần cờ tướng và nhảy tự do trên phần cờ vua. Tốt cờ vua cập bờ tại giao điểm trống rồi đi thẳng, ăn chéo về phía trước. Tốt cờ vua tới hàng cuối được phong Hậu, Xe, Tượng hoặc Mã. Tốt cờ tướng có thể đi hoặc ăn ngang trên phần cờ vua.</p>
+      <h3>Pháo và cung Tướng</h3>
+      <p>Pháo cần đúng một ngòi khi ăn quân. Ba lượt đầu của cờ tướng, ngòi phải là quân cờ tướng. Tướng được đi chéo một bước trên đường kẻ nối tâm cung với góc. Tướng và Sĩ ở trong cung, Tượng cờ tướng ở phần sân nhà.</p>
+      <h3>Kết thúc ván</h3>
+      <p>Nước đi làm Vua và Tướng lộ mặt là bất hợp lệ. Chiếu hết thắng ván. Ván hòa khi hết nước đi mà không bị chiếu, lặp thế ba lần hoặc có 100 lượt liên tiếp không bắt quân và không đi Tốt.</p>
+      <p class="credit">Hình quân cờ vua do <a href="https://commons.wikimedia.org/wiki/User:Cburnett">Cburnett</a> thiết kế, được chuyển sang PNG theo giấy phép <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>.</p>
+      <form method="dialog"><button type="submit" class="primary">Đóng</button></form>
+    </div>
+  </dialog>
+
+  <dialog id="options" aria-labelledby="options-title">
+    <div class="dialog-head"><h2 id="options-title">Tùy chọn bàn cờ</h2></div>
+    <div class="dialog-content">
+      <label class="check-setting"><input type="checkbox" id="enable-premove" checked>Cho phép PreMove khi đấu máy</label>
+      <label class="check-setting"><input type="checkbox" id="show-last" checked>Đánh dấu nước vừa đi</label>
+      <label class="check-setting"><input type="checkbox" id="show-targets" checked>Hiện các điểm đến khi chọn quân</label>
+      <p>Nhấp hoặc kéo thả để đi quân. Bấm chuột phải để tô điểm và kéo chuột phải để vẽ mũi tên. Nhấp trái hoặc nhấn Esc để xóa dấu.</p>
+      <form method="dialog"><button type="submit" class="primary">Đóng</button></form>
+    </div>
+  </dialog>
+
+  <dialog id="promotion" aria-labelledby="promotion-title">
+    <div class="dialog-head"><h2 id="promotion-title">Chọn quân phong cấp</h2></div>
+    <div class="dialog-content">
+      <div class="promotion-options" id="promotion-choices"></div>
+      <form method="dialog"><button type="submit">Hủy</button></form>
+    </div>
+  </dialog>
+</body>
+</html>

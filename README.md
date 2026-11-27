@@ -22,6 +22,25 @@ Trong mục **Bộ luật**, chọn **Cổ điển** hoặc **Cân bằng**. M�
 
 Ở bộ luật **Cân bằng**, Vua cờ vua chỉ được đi trong cung **c8–f6**, gồm các cột c, d, e, f và ba hàng 8, 7, 6. Đường viền xanh đánh dấu cung. Vua được nhập thành xa về c8 khi đủ điều kiện.
 
+## Bản web trên Vercel
+
+Bản web dùng cùng bộ luật và bot Python với bản desktop. Có thể chơi hai người trên cùng trình duyệt hoặc đấu máy. Mỗi bộ luật giữ một ván riêng trong phiên chơi. API dựng lại thế cờ từ lịch sử nước đi và chạy độc lập cho mỗi yêu cầu, nên không cần cơ sở dữ liệu hay biến môi trường.
+
+### Chạy bản web trên máy
+
+Cần Node.js 18 trở lên và Python 3.10 trở lên. Chạy ở thư mục gốc của repo:
+
+```console
+node scripts/build-web.mjs
+python serve_web.py
+```
+
+Mở địa chỉ do trình preview in ra, mặc định là `http://127.0.0.1:8000`. Có thể dùng `python serve_web.py --port 8001` nếu cổng mặc định đang được sử dụng.
+
+### Deploy lên Vercel
+
+Import repo vào Vercel với **Root Directory** là thư mục gốc và **Framework Preset** là **Other**. Tệp `vercel.json` đã khai báo lệnh build `node scripts/build-web.mjs`, đầu ra `dist` và Python Function tại `/api/game`. Phiên bản Python trên Vercel được ghim ở 3.12. Sau khi deploy, mở URL dự án để chơi.
+
 ## PreMove và đánh dấu bàn cờ
 
 - Trong chế độ **Đấu máy**, đặt trước tối đa năm nước của mình khi máy đang tính. Màu tím thể hiện các nước dự kiến. Mỗi nước được kiểm tra lại khi tới lượt, và hàng đợi bị hủy nếu nước kế tiếp không còn hợp lệ. Nhấn **Esc** hoặc bấm chuột phải vào điểm đã đặt để hủy.
