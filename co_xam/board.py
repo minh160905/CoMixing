@@ -9,6 +9,7 @@ SIDE = (-1,) + (CHESS,) * 6 + (XIANGQI,) * 7
 FILES, RANKS = 9, 9
 SIZE = FILES * RANKS
 RIVER = 4
+PALACE_CENTER = 7 * FILES + 4
 CANNON_UNLOCK_PLY = 5
 SQUARES = tuple(sq for sq in range(SIZE) if sq // FILES >= RIVER or sq % FILES < 8)
 ORTHOGONAL = ((-1, 0), (1, 0), (0, -1), (0, 1))
@@ -55,12 +56,10 @@ def _inside_palace(sq):
 
 def _jump_routes(piece, src):
     row, col = divmod(src, FILES)
-    if piece == WK:
+    if piece in (WK, XK):
         directions = ORTHOGONAL + DIAGONAL
     elif piece in (WN, XN):
         directions = KNIGHT
-    elif piece == XK:
-        directions = ORTHOGONAL
     elif piece == XA:
         directions = DIAGONAL
     elif piece == XE:
@@ -71,15 +70,18 @@ def _jump_routes(piece, src):
         if row == RIVER - 1:
             # The crossing uses only the empty forward landings.
             return ()
-        directions = ((1, -1), (1, 1), (0, -1), (0, 1)) if row >= RIVER else ((1, -1), (1, 1))
+        directions = ((1, -1), (1, 1))
     else:
         return ()
 
     routes = {}
     for dr, dc in directions:
         for dst in _landings(row, col, dr, dc):
-            if piece in (XK, XA) and (not _inside_palace(src) or not _inside_palace(dst)):
-                continue
+            if piece in (XK, XA):
+                if not _inside_palace(src) or not _inside_palace(dst):
+                    continue
+                if piece == XK and dr and dc and PALACE_CENTER not in (src, dst):
+                    continue
             if piece == XE and (row < RIVER or dst // FILES < RIVER or row + dr < RIVER):
                 continue
             blocker = -1
@@ -102,7 +104,6 @@ def _jump_routes(piece, src):
 JUMPS = [[()] * SIZE for _ in SIDE]
 MULTIPLE_ROUTES = [[False] * SIZE for _ in SIDE]
 FORWARD = [()] * SIZE
-PAWN_SIDEWAYS = [()] * SIZE
 RAYS = [[()] * SIZE for _ in SIDE]
 JUMP_ATTACKS = [[[] for _ in range(SIZE)] for _ in range(2)]
 RAY_ATTACKS = [[[] for _ in range(SIZE)] for _ in range(2)]
@@ -113,8 +114,6 @@ def _build_geometry():
     for src in SQUARES:
         row, col = divmod(src, FILES)
         FORWARD[src] = _landings(row, col, 1, 0)
-        if row >= RIVER:
-            PAWN_SIDEWAYS[src] = _landings(row, col, 0, -1) + _landings(row, col, 0, 1)
         for piece in range(1, len(SIDE)):
             JUMPS[piece][src] = _jump_routes(piece, src)
             destinations = JUMPS[piece][src]
@@ -324,8 +323,6 @@ class Board:
                         yield Move(src, dst)
                         if src // FILES == 1 and not cells[dst + FILES]:
                             yield Move(src, dst + FILES)
-                if not tactical_only:
-                    yield from (Move(src, dst) for dst in PAWN_SIDEWAYS[src] if not cells[dst])
             used_destinations = set() if MULTIPLE_ROUTES[piece][src] else None
             for dst, blocker in JUMPS[piece][src]:
                 target = cells[dst]

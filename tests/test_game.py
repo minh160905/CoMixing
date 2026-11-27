@@ -78,6 +78,34 @@ class BoardRules(unittest.TestCase):
                 self.assertIn(capture, moves_from(board, row, 4))
                 self.assertTrue(board.is_attacked(capture, CHESS))
 
+    def test_western_pawn_on_xiangqi_half_advances_and_captures_diagonally(self):
+        board = position((5, 4, WP), (5, 3, XP), (6, 5, XC))
+        self.assertEqual(moves_from(board, 5, 4), {square(6, 4), square(6, 5)})
+        self.assertFalse(board.is_attacked(square(5, 3), CHESS))
+        self.assertFalse(board.is_attacked(square(5, 5), CHESS))
+        blocked = position((5, 4, WP), (6, 4, XP))
+        self.assertFalse(moves_from(blocked, 5, 4))
+
+    def test_general_diagonals_follow_only_the_lines_inside_the_palace(self):
+        center = square(7, 4)
+        from_center = Board({square(0, 0): WK, center: XK}, turn=XIANGQI)
+        self.assertEqual(moves_from(from_center, 7, 4), {
+            square(row, col) for row in range(6, 9) for col in range(3, 6)
+        } - {center})
+        self.assertTrue(from_center.is_attacked(square(6, 3), XIANGQI))
+
+        corner = square(6, 3)
+        from_corner = Board({square(0, 0): WK, corner: XK, center: WP}, turn=XIANGQI)
+        self.assertIn(Move(corner, center), from_corner.pseudo_moves(tactical_only=True))
+        self.assertIn(center, moves_from(from_corner, 6, 3))
+
+        from_edge = Board({square(0, 0): WK, square(6, 4): XK}, turn=XIANGQI)
+        self.assertEqual(moves_from(from_edge, 6, 4), {square(6, 3), square(6, 5), center})
+        self.assertFalse(from_edge.is_attacked(square(7, 3), XIANGQI))
+
+        checked_destination = Board({square(0, 0): WK, square(8, 3): XK, corner: WP}, turn=XIANGQI)
+        self.assertNotIn(center, moves_from(checked_destination, 8, 3))
+
     def test_imported_pieces_use_the_current_half(self):
         queen = position((6, 1, WQ))
         self.assertIn(square(4, 1), moves_from(queen, 6, 1))
@@ -89,7 +117,6 @@ class BoardRules(unittest.TestCase):
         self.assertNotIn(square(6, 4), moves_from(horse, 5, 2))
         freed = position((2, 2, XN), (2, 3, XP), turn=XIANGQI)
         self.assertIn(square(1, 4), moves_from(freed, 2, 2))
-        self.assertIn(square(6, 2), moves_from(position((6, 1, WP)), 6, 1))
         self.assertIn(square(2, 3), moves_from(position((2, 2, XP), turn=XIANGQI), 2, 2))
 
     def test_horse_can_use_either_open_crossing_route(self):
@@ -164,7 +191,7 @@ class BoardRules(unittest.TestCase):
         self.assertIsNone(Search(table_bits=8).analyze(stalemate).move)
 
     def test_repetition_includes_reversible_sideways_pawn_moves(self):
-        board = position((6, 1, WP), (2, 1, XP))
+        board = position((6, 1, WR), (2, 1, XP))
         cycle = ((6, 1, 6, 2), (2, 1, 2, 2), (6, 2, 6, 1), (2, 2, 2, 1))
         for src_r, src_c, dst_r, dst_c in cycle * 2:
             move = Move(square(src_r, src_c), square(dst_r, dst_c))

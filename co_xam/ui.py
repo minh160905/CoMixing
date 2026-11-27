@@ -45,10 +45,11 @@ RULES = (
      "cờ tướng kề nó. Đường kẻ ngoài cùng chỉ có một ô cờ vua tương ứng."),
     ("Hậu, Tượng và Tốt", "Hậu và Tượng cờ vua đi tối đa hai bước khi xuất phát "
      "trên phần cờ tướng. Khi qua sông, Tốt cờ vua chỉ tiến thẳng đến giao điểm trống. "
-     "Tốt hai bên có thể đi hoặc ăn ngang sau khi qua sông. "
-     "Tốt cờ vua phong cấp ở hàng cuối bên kia."),
+     "Trên phần cờ tướng, Tốt cờ vua chỉ đi thẳng và ăn chéo về phía trước. "
+     "Tốt cờ vua phong cấp ở hàng cuối bên kia. Tốt cờ tướng được đi hoặc ăn ngang trên phần cờ vua."),
     ("Mã và cung Tướng", "Mã hai bên bị chặn chân khi xuất phát trên phần cờ tướng. "
-     "Trên phần cờ vua, Mã nhảy tự do. Tướng và Sĩ ở trong cung. Tượng cờ tướng không qua sông."),
+     "Trên phần cờ vua, Mã nhảy tự do. Tướng và Sĩ ở trong cung. Tướng được đi chéo một điểm "
+     "theo đường kẻ nối tâm cung với góc. Tượng cờ tướng không qua sông."),
     ("Pháo", "Pháo cần đúng một quân làm ngòi khi ăn quân. Trong ba lượt đầu "
      "của bên cờ tướng, ngòi phải là quân cờ tướng."),
     ("Nhập thành và lộ mặt Tướng", "Vua cờ vua được nhập thành theo luật cờ vua. "

@@ -18,7 +18,8 @@ Chọn quân rồi bấm vào một điểm đến được đánh dấu. Nút *
 
 - Cờ tướng mở màn. Giới hạn ngòi Pháo tính theo ba lượt đầu của bên cờ tướng.
 - Một nước vượt sông dừng ở bờ đến. Nước nhảy đối chiếu cột đích rồi đặt quân ở bờ. Đường kẻ ngoài cùng chỉ có một ô cờ vua kề nó. Các điều kiện chặn đường của từng quân vẫn áp dụng khi qua sông.
-- Giới hạn hai bước của Hậu và Tượng cờ vua, cùng quy tắc chặn chân Mã, xét theo phần bàn nơi quân xuất phát. Tốt cờ vua qua sông bằng cách tiến thẳng đến một trong hai giao điểm trống kề cột của nó. Tốt cờ vua ở phần cờ tướng được đi hoặc ăn ngang. Tốt cờ vua tới hàng cuối chọn phong Hậu, Xe, Tượng hoặc Mã.
+- Giới hạn hai bước của Hậu và Tượng cờ vua, cùng quy tắc chặn chân Mã, xét theo phần bàn nơi quân xuất phát. Tốt cờ vua qua sông bằng cách tiến thẳng đến một trong hai giao điểm trống kề cột của nó. Tốt cờ vua ở phần cờ tướng chỉ tiến thẳng và ăn chéo về phía trước. Tốt cờ vua tới hàng cuối chọn phong Hậu, Xe, Tượng hoặc Mã.
+- Tướng cờ tướng ở trong cung, được đi ngang hoặc dọc một điểm và đi chéo một điểm theo đường kẻ nối tâm cung với góc.
 - Nhập thành giữ luật cờ vua. Nếu Vua đi một nước hợp lệ và làm lộ mặt Tướng, cờ tướng thắng ngay. Các nước đi khác khiến hai quân lộ mặt bị cấm.
 - Chiếu hết thắng ván. Hai bên hòa nếu bên đến lượt hết nước hợp lệ khi không bị chiếu, cùng thế cờ lặp lại ba lần, hoặc hai bên đi liên tiếp tổng cộng 100 nước không bắt quân và không đi Tốt.
 
