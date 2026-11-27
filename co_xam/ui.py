@@ -10,27 +10,27 @@ from . import GAME_NAME
 from .board import (
     CHESS, XIANGQI, SIDE, SIDE_NAMES, PIECE_NAMES,
     CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS,
-    Board, coordinates,
+    WK, Board, coordinates,
 )
-from .board_view import BoardView, WEST_MARKS, STAGE, LEGAL, CAPTURE, LAST_MOVE, PREMOVE
+from .board_view import BoardView, STAGE, LEGAL, CAPTURE, LAST_MOVE, PREMOVE
 from .premove import MAX_PREMOVES, PremoveQueue, possible_moves
 from .search import Search
 
-APP_BG = "#f2eee5"
-PAPER = "#fffcf5"
-BORDER = "#d9d1c3"
-INK = "#203344"
-MUTED = "#546473"
-NAV = "#162837"
-NAV_CONTROL = "#284050"
-NAV_TEXT = "#fff6e4"
-GOLD = "#ebc783"
-SOFT = "#f2eee5"
-HOVER = "#e8dfcd"
-WEST = "#24496a"
-WEST_TINT = "#e3ebf1"
-EAST = "#94362e"
-EAST_TINT = "#f3e1da"
+APP_BG = "#101917"
+PAPER = "#1c2b27"
+BORDER = "#385047"
+INK = "#f4efdf"
+MUTED = "#b9c7bd"
+NAV = "#182521"
+NAV_CONTROL = "#2a3d35"
+NAV_TEXT = "#faf1d9"
+GOLD = "#f0ca83"
+SOFT = "#2a3d35"
+HOVER = "#3a5248"
+WEST = "#ade0c5"
+WEST_TINT = "#295046"
+EAST = "#ffad95"
+EAST_TINT = "#53362e"
 
 REASONS = {
     CHECKMATE: "Chiếu hết",
@@ -99,7 +99,7 @@ class GameApp:
             XIANGQI: self._build_seat(stage, XIANGQI, 2),
         }
         self.view = BoardView(stage, self.pick, self.grab, self._cancel_premove_at,
-                              self.ui_font, self.chess_font, self.chinese_font)
+                              self.ui_font, self.chinese_font)
         self.view.grid(row=1, column=0, sticky="nsew")
         self._build_legend(stage)
 
@@ -134,7 +134,7 @@ class GameApp:
                         borderwidth=0, padding=(8, 5), relief="flat", font=(self.ui_font, 9, "bold"))
         style.map("Moves.Treeview.Heading", background=[("active", SOFT)])
         style.map("Moves.Treeview", background=[("selected", WEST_TINT)], foreground=[("selected", INK)])
-        style.configure("Paper.Vertical.TScrollbar", background="#d4cabc", troughcolor=PAPER,
+        style.configure("Paper.Vertical.TScrollbar", background=BORDER, troughcolor=PAPER,
                         borderwidth=0, relief="flat", arrowsize=11)
 
     def _label(self, parent, text, size=10, *, fg=INK, bg=PAPER, bold=False, heading=False, wrap=0):
@@ -145,13 +145,13 @@ class GameApp:
     def _button(self, parent, text, command, *, kind="plain", compact=False):
         normal, foreground, hover = {
             "primary": (GOLD, NAV, "#f5d89f"),
-            "nav": (NAV_CONTROL, NAV_TEXT, "#38566b"),
+            "nav": (NAV_CONTROL, NAV_TEXT, HOVER),
             "plain": (SOFT, INK, HOVER),
         }[kind]
         button = tk.Button(
             parent, text=text, command=command, relief="flat", borderwidth=0,
             bg=normal, fg=foreground, activebackground=hover, activeforeground=foreground,
-            disabledforeground="#706b62", font=(self.ui_font, 9 if compact else 10, "bold"),
+            disabledforeground="#a0ada5", font=(self.ui_font, 9 if compact else 10, "bold"),
             padx=9 if compact else 14, pady=4 if compact else 6, highlightthickness=1,
             highlightbackground=parent.cget("bg"), highlightcolor=WEST, takefocus=True,
         )
@@ -175,7 +175,7 @@ class GameApp:
         seal.pack(side="left", padx=(0, 12))
         seal.create_polygon(2, 8, 8, 2, 39, 2, 45, 8, 45, 39, 39, 45, 8, 45, 2, 39,
                             fill=NAV_CONTROL, outline=GOLD)
-        seal.create_line(27, 9, 20, 38, fill="#7e929e")
+        seal.create_line(27, 9, 20, 38, fill="#80968a")
         seal.create_text(14, 23, text="♞", fill=NAV_TEXT, font=(self.chess_font, -19))
         seal.create_text(33, 23, text="帥", fill=GOLD, font=(self.chinese_font, -15, "bold"))
         title = tk.Frame(nav, bg=NAV)
@@ -188,19 +188,21 @@ class GameApp:
         self.options_button.pack(side="right", padx=(0, 8))
         self.new_button = self._button(nav, "Ván mới", self.new_game, kind="primary")
         self.new_button.pack(side="right", padx=(0, 8))
-        tk.Frame(self.root, bg=GOLD, height=2).grid(row=0, column=0, sticky="sew")
+        tk.Frame(self.root, bg=BORDER, height=1).grid(row=0, column=0, sticky="sew")
 
     def _build_seat(self, stage, side, row):
         bar = tk.Frame(stage, bg=PAPER, padx=9, pady=3)
         bar.grid(row=row, column=0, sticky="ew", padx=10, pady=(6, 0))
         west = side == CHESS
         mark, family, color = ("♚", self.chess_font, WEST) if west else ("帥", self.chinese_font, EAST)
+        accent = tk.Frame(bar, bg=BORDER, width=3)
+        accent.pack(side="left", fill="y", padx=(0, 7))
         tk.Label(bar, text=mark, bg=PAPER, fg=color, font=(family, 11, "bold")).pack(side="left")
         name = self._label(bar, SIDE_NAMES[side], 9, fg=color, bold=True)
         name.pack(side="left", padx=(5, 0))
         status = self._label(bar, "", 9, fg=color, bold=True)
         status.pack(side="right")
-        return name, status
+        return name, status, accent
 
     def _build_legend(self, stage):
         legend = tk.Frame(stage, bg=STAGE, pady=5)
@@ -236,6 +238,7 @@ class GameApp:
         self.turn_icon.pack(side="left", padx=(0, 10))
         self.icon_tile = self.turn_icon.create_rectangle(1, 1, 43, 43, fill=EAST_TINT, outline="")
         self.icon_mark = self.turn_icon.create_text(22, 22, text="", fill=EAST)
+        self.icon_piece = self.turn_icon.create_image(22, 22, image=self.view.western_image(WK, 36))
         status = tk.Frame(turn_card, bg=PAPER)
         status.pack(side="left", fill="x", expand=True)
         self.turn_context = self._label(status, "", 9, fg=MUTED, bold=True)
@@ -282,7 +285,7 @@ class GameApp:
         self.log.column("notation", width=153, minwidth=133)
         for side, color in ((CHESS, WEST), (XIANGQI, EAST)):
             self.log.tag_configure(f"{side}-0", background=PAPER, foreground=color)
-            self.log.tag_configure(f"{side}-1", background="#f7f3e9", foreground=color)
+            self.log.tag_configure(f"{side}-1", background=NAV, foreground=color)
         self.log_scroll = ttk.Scrollbar(scrollable, orient="vertical", command=self.log.yview,
                                         style="Paper.Vertical.TScrollbar")
         self.log_scroll.grid(row=0, column=1, sticky="ns")
@@ -312,7 +315,7 @@ class GameApp:
     def _set_active(buttons, value):
         for option, button in buttons.items():
             selected = option == value
-            normal, foreground, hover = (NAV, NAV_TEXT, NAV_CONTROL) if selected else (SOFT, INK, HOVER)
+            normal, foreground, hover = (GOLD, NAV, "#f5d89f") if selected else (SOFT, INK, HOVER)
             button.normal_color = normal
             button.configure(bg=normal, fg=foreground, activebackground=hover, activeforeground=foreground)
 
@@ -398,7 +401,7 @@ class GameApp:
         else:
             candidates = frozenset()
         targets = frozenset(move.dst for move in self.input_moves)
-        for seat_side, (name, status) in self.seats.items():
+        for seat_side, (name, status, accent) in self.seats.items():
             text = SIDE_NAMES[seat_side]
             if self.vs_bot:
                 role = "Bạn" if seat_side == self.human else "Máy"
@@ -406,8 +409,9 @@ class GameApp:
             name.configure(text=text)
             active = self.outcome is None and seat_side == side
             status.configure(text=("Bị chiếu" if self.check else "Đang đi") if active else "")
+            accent.configure(bg=status.cget("fg") if active else BORDER)
         active_side = side
-        color = CAPTURE if self.check else MUTED
+        color = EAST if self.check else MUTED
         if self.outcome is not None:
             active_side = self.outcome.winner
             context = "KẾT QUẢ"
@@ -435,12 +439,13 @@ class GameApp:
                 detail = "Đang bị chiếu" if self.selection is None and self.job is None else f"Đang bị chiếu · {detail}"
 
         if active_side == CHESS:
-            mark, mark_font, side_color, tint = "♚", self.chess_font, WEST, WEST_TINT
+            mark, mark_font, side_color, tint = "", self.chess_font, WEST, WEST_TINT
         elif active_side == XIANGQI:
             mark, mark_font, side_color, tint = "帥", self.chinese_font, EAST, EAST_TINT
         else:
             mark, mark_font, side_color, tint = "=", self.ui_font, INK, SOFT
         self.turn_icon.itemconfigure(self.icon_tile, fill=tint)
+        self.turn_icon.itemconfigure(self.icon_piece, state="normal" if active_side == CHESS else "hidden")
         self.turn_icon.itemconfigure(self.icon_mark, text=mark, fill=side_color, font=(mark_font, -25, "bold"))
         self.turn_context.configure(text=context)
         self.turn_label.configure(text=title, fg=side_color)
@@ -648,9 +653,9 @@ class GameApp:
 
         for index, move in enumerate(moves):
             piece = move.promotion
-            button = self._button(row, f"{WEST_MARKS[piece]}\n{PIECE_NAMES[piece]}",
+            button = self._button(row, PIECE_NAMES[piece],
                                   lambda choice=move: promote(choice))
-            button.configure(font=(self.chess_font, 13, "bold"), width=6, pady=9)
+            button.configure(image=self.view.western_image(piece, 44), compound="top", pady=8)
             row.grid_columnconfigure(index, weight=1, uniform="promotion")
             button.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 5, 0))
         self._button(content, "Hủy", dialog.destroy).pack(anchor="e")
