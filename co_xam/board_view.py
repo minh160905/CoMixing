@@ -1,14 +1,15 @@
 """Canvas artwork and pointer interaction for the two board geometries."""
 
 from math import floor, hypot
+from pathlib import Path
 import tkinter as tk
 
 from .board import (
     FILES, RIVER, SQUARES, WESTERN_PALACE, WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP, square,
 )
 
-STAGE = "#e9e3d7"
-FRAME = "#293c4e"
+STAGE = "#192825"
+FRAME = "#243832"
 LEGAL = "#15745f"
 CAPTURE = "#982e39"
 LAST_MOVE = "#996221"
@@ -23,19 +24,22 @@ _ANNOTATION_COLORS = {
 
 # Tk includes Alt in different state bits on Windows and X11.
 _SHIFT, _CONTROL, _ALT = 0x1, 0x4, 0x20008
-WEST_MARKS = {WK: "♚", WQ: "♛", WR: "♜", WB: "♝", WN: "♞", WP: "♟"}
+WEST_PIECES = (WK, WQ, WR, WB, WN, WP)
+PIECE_SIZES = range(24, 129, 4)
+PIECE_ATLAS = Path(__file__).with_name("assets") / "western-pieces.png"
 EAST_MARKS = {XK: "帥", XR: "車", XC: "炮", XN: "馬", XE: "相", XA: "仕", XP: "兵"}
 
 
 class BoardView(tk.Canvas):
-    def __init__(self, parent, on_pick, on_grab, on_cancel_premove, ui_font, chess_font, chinese_font):
+    def __init__(self, parent, on_pick, on_grab, on_cancel_premove, ui_font, chinese_font):
         super().__init__(parent, background=STAGE, highlightthickness=0, takefocus=True)
         self.on_pick = on_pick
         self.on_grab = on_grab
         self.on_cancel_premove = on_cancel_premove
         self.ui_font = ui_font
-        self.chess_font = chess_font
         self.chinese_font = chinese_font
+        self._piece_atlas = tk.PhotoImage(master=self, file=PIECE_ATLAS)
+        self._piece_images = {}
         self.board = None
         self.displayed = None
         self.clickable = frozenset()
@@ -194,7 +198,7 @@ class BoardView(tk.Canvas):
         if self.board is None or min(width, height) < 120:
             return
 
-        unit = self.unit = min((width - 28) / 9.34, (height - 25) / 10.19)
+        unit = self.unit = min((width - 24) / 9.34, (height - 16) / 10.19)
         left = self.left = (width - 8 * unit) / 2
         top = self.top = (height - 10.19 * unit) / 2 + .51 * unit
         right = left + 8 * unit
@@ -204,11 +208,11 @@ class BoardView(tk.Canvas):
         edge_left, edge_right = left - .67 * unit, right + .67 * unit
         edge_top, edge_bottom = top - .51 * unit, bottom + .82 * unit
         self.create_rectangle(edge_left + 3, edge_top + 5, edge_right + 3, edge_bottom + 5,
-                              fill="#c9c1b2", outline="")
+                              fill="#101a18", outline="")
         self.create_rectangle(edge_left, edge_top, edge_right, edge_bottom,
-                              fill=FRAME, outline="#213343", width=1)
+                              fill=FRAME, outline="#0f1916", width=1)
         self.create_rectangle(edge_left + 3, edge_top + 3, edge_right - 3, edge_bottom - 3,
-                              outline="#62717b", width=1)
+                              outline="#526a5e", width=1)
 
         coord_font = (self.ui_font, -max(11, int(unit * .205)), "bold")
         coord_color = "#f0e7d4"
@@ -218,7 +222,7 @@ class BoardView(tk.Canvas):
                              text=str(8 - row), fill=coord_color, font=coord_font)
             for col in range(8):
                 x = left + col * unit
-                color = "#eae1ca" if (row + col) % 2 == 0 else "#9eaead"
+                color = "#e7ddbc" if (row + col) % 2 == 0 else "#779582"
                 self.create_rectangle(x, y, x + unit, y + unit, fill=color, outline="")
         for col, label in enumerate("abcdefgh"):
             self.create_text(left + (col + .5) * unit, top - .25 * unit,
@@ -231,22 +235,22 @@ class BoardView(tk.Canvas):
             self.create_rectangle(x1 - edge, y1 - edge, x2 + edge, y2 + edge,
                                   outline="#225679", width=max(2, .038 * unit), tags=("western-palace",))
 
-        self.create_rectangle(left, shore, right, bank, fill="#304f63", outline="")
-        self.create_line(left, shore + 1, right, shore + 1, fill="#a0b4b8")
+        self.create_rectangle(left, shore, right, bank, fill="#244a50", outline="")
+        self.create_line(left, shore + 1, right, shore + 1, fill="#759d99")
         for row in (.29, .57):
             y = shore + row * unit
             for start, end in ((.52, 3.0), (5.0, 7.48)):
                 self.create_line(
                     left + start * unit, y, left + (start + .55) * unit, y - .08 * unit,
                     left + (end - .55) * unit, y + .08 * unit, left + end * unit, y,
-                    fill="#6c8795", smooth=True,
+                    fill="#527b7e", smooth=True,
                 )
         self.create_text((left + right) / 2, shore + .43 * unit, text="SÔNG",
                          fill="#f4e3b7", font=(self.ui_font, -max(12, int(unit * .24)), "bold"))
 
         self.create_rectangle(left - .40 * unit, bank, right + .40 * unit, bottom + .44 * unit,
-                              fill="#ebd4ad", outline="")
-        grid = "#856648"
+                              fill="#dcb482", outline="")
+        grid = "#795638"
         for col in range(9):
             x = left + col * unit
             self.create_line(x, bank, x, bottom, fill=grid)
@@ -327,19 +331,25 @@ class BoardView(tk.Canvas):
     def _disc(self, x, y, radius, **style):
         self.create_oval(x - radius, y - radius, x + radius, y + radius, **style)
 
+    def western_image(self, piece, pixels):
+        size = min(PIECE_SIZES, key=lambda candidate: abs(candidate - pixels))
+        key = piece, size
+        if key not in self._piece_images:
+            x = WEST_PIECES.index(piece) * size
+            y = sum(range(PIECE_SIZES.start, size, PIECE_SIZES.step))
+            image = tk.PhotoImage(master=self, width=size, height=size)
+            self.tk.call(image, "copy", self._piece_atlas, "-from", x, y, x + size, y + size)
+            self._piece_images[key] = image
+        return self._piece_images[key]
+
     def _piece(self, x, y, piece, tags=()):
         unit = self.unit
-        if piece in WEST_MARKS:
-            self.create_oval(x - .285 * unit, y + .295 * unit, x + .285 * unit, y + .345 * unit,
-                             fill="#697474", outline="", tags=tags)
-            mark = WEST_MARKS[piece]
-            glyph = (self.chess_font, -max(22, int(unit * .77)))
-            self.create_text(x, y + .018 * unit, text=mark, fill="#e7e6d5", font=glyph, tags=tags)
-            self.create_text(x, y - .018 * unit, text=mark, fill="#142a3d", font=glyph, tags=tags)
+        if piece in WEST_PIECES:
+            self.create_image(x, y, image=self.western_image(piece, unit * .93), tags=tags)
         else:
-            radius = unit * .358
-            self._disc(x + .024 * unit, y + .046 * unit, radius, fill="#957054", outline="", tags=tags)
-            self._disc(x, y, radius, fill="#f9e4c0", outline="#8b4037", width=max(1.5, .033 * unit), tags=tags)
-            self._disc(x, y, radius * .84, outline="#c9966c", tags=tags)
-            self.create_text(x, y - .012 * unit, text=EAST_MARKS[piece], fill="#882e29",
-                             font=(self.chinese_font, -max(16, int(unit * .445)), "bold"), tags=tags)
+            radius = unit * .384
+            self._disc(x + .02 * unit, y + .06 * unit, radius, fill="#946747", outline="", tags=tags)
+            self._disc(x, y, radius, fill="#f7dfb4", outline="#722e27", width=max(1.5, .04 * unit), tags=tags)
+            self._disc(x, y, radius * .83, outline="#b76a4f", tags=tags)
+            self.create_text(x, y - .012 * unit, text=EAST_MARKS[piece], fill="#762822",
+                             font=(self.chinese_font, -max(16, int(unit * .47)), "bold"), tags=tags)

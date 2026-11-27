@@ -12,6 +12,10 @@ python -m co_xam
 
 Cần Python 3.10 trở lên có Tkinter. Trò chơi dùng thư viện chuẩn của Python.
 
+Hình quân cờ vua do [Colin M. L. Burnett (Cburnett)](https://commons.wikimedia.org/wiki/User:Cburnett)
+thiết kế, lấy từ [bộ SVG Cburnett trong Lichess](https://github.com/lichess-org/lila/tree/master/public/piece/cburnett)
+và chuyển thành PNG nhiều kích thước, theo giấy phép [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
+
 Chọn quân rồi bấm vào điểm đến, hoặc kéo thả quân tới điểm đó. Nút **Hoàn tác** lùi một nước trong chế độ hai người. Khi đấu máy, nút này đưa ván cờ về trước nước gần nhất của bạn. Đổi giữa **Hai người** và **Đấu máy** hoặc đổi bên cầm quân sẽ giữ thế cờ hiện tại.
 
 Trong mục **Bộ luật**, chọn **Cổ điển** hoặc **Cân bằng**. Mỗi bộ luật có một ván riêng trong phiên chơi. Đổi bộ luật sẽ mở hoặc tiếp tục ván tương ứng. Nút **Ván mới** đặt lại ván đang xem.
