@@ -1,6 +1,6 @@
 """Canvas artwork and pointer interaction for the two board geometries."""
 
-from math import floor
+from math import floor, hypot
 import tkinter as tk
 
 from .board import FILES, RIVER, SQUARES, WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP, square
@@ -10,30 +10,59 @@ FRAME = "#293c4e"
 LEGAL = "#15745f"
 CAPTURE = "#982e39"
 LAST_MOVE = "#996221"
+PREMOVE = "#6441a2"
+_PREMOVE_FILL = "#e7dcfa"
+_ANNOTATION_COLORS = {
+    "red": ("#b33e45", "#f1b5af"),
+    "amber": ("#a9601a", "#f3d397"),
+    "blue": ("#2866a4", "#bcd8f3"),
+    "green": ("#1b7654", "#b6dcc6"),
+}
+
+# Tk includes Alt in different state bits on Windows and X11.
+_SHIFT, _CONTROL, _ALT = 0x1, 0x4, 0x20008
 WEST_MARKS = {WK: "♚", WQ: "♛", WR: "♜", WB: "♝", WN: "♞", WP: "♟"}
 EAST_MARKS = {XK: "帥", XR: "車", XC: "炮", XN: "馬", XE: "相", XA: "仕", XP: "兵"}
 
 
 class BoardView(tk.Canvas):
-    def __init__(self, parent, on_pick, ui_font, chess_font, chinese_font):
-        super().__init__(parent, background=STAGE, highlightthickness=0)
+    def __init__(self, parent, on_pick, on_grab, on_cancel_premove, ui_font, chess_font, chinese_font):
+        super().__init__(parent, background=STAGE, highlightthickness=0, takefocus=True)
         self.on_pick = on_pick
+        self.on_grab = on_grab
+        self.on_cancel_premove = on_cancel_premove
         self.ui_font = ui_font
         self.chess_font = chess_font
         self.chinese_font = chinese_font
         self.board = None
         self.displayed = None
         self.clickable = frozenset()
+        self.grabbable = frozenset()
+        self.highlights = {}
+        self.arrows = {}
+        self._left_start = None
+        self._drag_point = None
+        self._right_start = None
         self.bind("<Configure>", lambda _: self.redraw())
-        self.bind("<Button-1>", lambda event: self.on_pick(self._at(event.x, event.y)))
+        self.bind("<ButtonPress-1>", self._press_left)
+        self.bind("<B1-Motion>", self._drag_left)
+        self.bind("<ButtonRelease-1>", self._release_left)
+        self.bind("<ButtonPress-3>", self._press_right)
+        self.bind("<B3-Motion>", self._drag_right)
+        self.bind("<ButtonRelease-3>", self._release_right)
         self.bind("<Motion>", self._hover)
         self.bind("<Leave>", lambda _: self.configure(cursor=""))
 
-    def show_position(self, board, selection, targets, last_move, check, candidates):
+    def show_position(self, board, selection, targets, last_move, check, candidates, *,
+                      projected=None, premoves=(), show_targets=True):
+        if self.displayed is not None and self.displayed[0] != board.key:
+            self.cancel_gestures()
         self.board = board
+        self.cells = board.cells if projected is None else projected
+        self.grabbable = candidates
         self.clickable = candidates | targets
-        self.configure(cursor="")
-        state = (board.key, selection, targets, last_move, check)
+        self.configure(cursor="hand2" if self._drag_point is not None else "")
+        state = (board.key, selection, targets, last_move, check, premoves, show_targets, projected is not None)
         if state == self.displayed:
             return
         self.displayed = state
@@ -41,6 +70,8 @@ class BoardView(tk.Canvas):
         self.targets = targets
         self.last_move = last_move
         self.check = check
+        self.premoves = premoves
+        self.show_targets = show_targets
         self.redraw()
 
     def point(self, sq):
@@ -59,6 +90,96 @@ class BoardView(tk.Canvas):
         if -.47 <= col <= 8.47 and -.46 <= row <= 4.47:
             return square(RIVER + floor(row + .5), floor(col + .5))
         return None
+
+    def clear_annotations(self):
+        if self.highlights or self.arrows:
+            self.highlights.clear()
+            self.arrows.clear()
+            self.redraw()
+
+    def cancel_gestures(self):
+        was_dragging = self._drag_point is not None
+        self._left_start = self._drag_point = self._right_start = None
+        self.delete("arrow-preview")
+        if was_dragging:
+            self.redraw()
+
+    def _press_left(self, event):
+        self.focus_set()
+        self.clear_annotations()
+        self._left_start = (self._at(event.x, event.y), event.x, event.y)
+
+    def _drag_left(self, event):
+        if self._left_start is None:
+            return
+        sq, x, y = self._left_start
+        if sq not in self.grabbable:
+            return
+        if self._drag_point is None:
+            if hypot(event.x - x, event.y - y) < 5:
+                return
+            self._drag_point = (event.x, event.y)
+            self.on_grab(sq)
+            self.redraw()
+        else:
+            x, y = self._drag_point
+            self.move("dragged-piece", event.x - x, event.y - y)
+            self._drag_point = (event.x, event.y)
+
+    def _release_left(self, event):
+        if self._left_start is None:
+            return
+        dragged = self._drag_point is not None
+        self._left_start = self._drag_point = None
+        if dragged:
+            self.redraw()
+        self.on_pick(self._at(event.x, event.y), dragged=dragged)
+
+    @staticmethod
+    def _annotation_color(state, arrow=False):
+        if state & _SHIFT:
+            return "green"
+        if state & _ALT:
+            return "blue"
+        if state & _CONTROL:
+            return "red" if arrow else "amber"
+        return "amber" if arrow else "red"
+
+    def _press_right(self, event):
+        self.focus_set()
+        self._right_start = (self._at(event.x, event.y), event.state)
+
+    def _drag_right(self, event):
+        self.delete("arrow-preview")
+        if self._right_start is None:
+            return
+        origin, state = self._right_start
+        target = self._at(event.x, event.y)
+        if origin is not None and target is not None and origin != target:
+            color = _ANNOTATION_COLORS[self._annotation_color(state, arrow=True)][0]
+            self._arrow(origin, target, color, "arrow-preview")
+
+    def _release_right(self, event):
+        self.delete("arrow-preview")
+        if self._right_start is None:
+            return
+        origin, state = self._right_start
+        self._right_start = None
+        target = self._at(event.x, event.y)
+        if origin is None or target is None:
+            return
+        if origin == target:
+            if self.on_cancel_premove(origin):
+                return
+            annotations, key = self.highlights, origin
+        else:
+            annotations, key = self.arrows, (origin, target)
+        color = self._annotation_color(state, arrow=origin != target)
+        if annotations.get(key) == color:
+            del annotations[key]
+        else:
+            annotations[key] = color
+        self.redraw()
 
     def _hover(self, event):
         cursor = "hand2" if self._at(event.x, event.y) in self.clickable else ""
@@ -131,22 +252,59 @@ class BoardView(tk.Canvas):
         if self.last_move is not None:
             for sq in (self.last_move.src, self.last_move.dst):
                 self._mark(sq, LAST_MOVE, .435, "#f6dba1")
+        for move in self.premoves:
+            for sq in (move.src, move.dst):
+                self._mark(sq, PREMOVE, .445, _PREMOVE_FILL, 2)
         if self.selection is not None:
-            self._mark(self.selection, LEGAL, .46, "#bce1ce", 3)
+            if self.cells is self.board.cells:
+                self._mark(self.selection, LEGAL, .46, "#bce1ce", 3)
+            else:
+                self._mark(self.selection, PREMOVE, .46, _PREMOVE_FILL, 3)
         if self.check is not None:
             self._mark(self.check, CAPTURE, .405, "#efb1a9", 3)
+        for sq, color in self.highlights.items():
+            outline, fill = _ANNOTATION_COLORS[color]
+            if sq in (self.selection, self.check):
+                fill = ""
+            self._mark(sq, outline, .47, fill, 3)
 
+        dragged = self._left_start[0] if self._drag_point is not None else None
         for sq in SQUARES:
-            piece = self.board.cells[sq]
-            if piece:
-                self._piece(sq, piece)
+            piece = self.cells[sq]
+            if piece and sq != dragged:
+                self._piece(*self.point(sq), piece)
+        if self.show_targets:
+            self._draw_targets()
+        for (src, dst), color in self.arrows.items():
+            self._arrow(src, dst, _ANNOTATION_COLORS[color][0])
+        if dragged is not None:
+            self._piece(*self._drag_point, self.cells[dragged], tags=("dragged-piece",))
+
+    def _draw_targets(self):
+        unit = self.unit
+        preview = self.cells is not self.board.cells
         for sq in self.targets:
             x, y = self.point(sq)
-            if self.board.cells[sq]:
+            if not preview and self.cells[sq]:
                 self._disc(x, y, unit * .46, outline="#fff6e3", width=max(4, unit * .075))
                 self._disc(x, y, unit * .46, outline=CAPTURE, width=max(2, unit * .042))
+            elif preview:
+                self._disc(x, y, unit * .43, outline=PREMOVE, width=2, dash=(3, 3))
             else:
                 self._disc(x, y, unit * .119, fill=LEGAL, outline="#f7f4e1", width=1.5)
+
+    def _arrow(self, src, dst, color, tag="annotation-arrow"):
+        x1, y1 = self.point(src)
+        x2, y2 = self.point(dst)
+        dx, dy = x2 - x1, y2 - y1
+        distance = hypot(dx, dy)
+        unit = self.unit
+        start, end = .24 * unit / distance, .31 * unit / distance
+        self.create_line(
+            x1 + dx * start, y1 + dy * start, x2 - dx * end, y2 - dy * end,
+            fill=color, width=max(3, .11 * unit), capstyle=tk.ROUND, arrow=tk.LAST,
+            arrowshape=tuple(max(4, value * unit) for value in (.20, .25, .11)), tags=(tag,),
+        )
 
     def _mark(self, sq, outline, radius, fill, width=2):
         x, y = self.point(sq)
@@ -160,20 +318,19 @@ class BoardView(tk.Canvas):
     def _disc(self, x, y, radius, **style):
         self.create_oval(x - radius, y - radius, x + radius, y + radius, **style)
 
-    def _piece(self, sq, piece):
-        x, y = self.point(sq)
+    def _piece(self, x, y, piece, tags=()):
         unit = self.unit
         if piece in WEST_MARKS:
             self.create_oval(x - .285 * unit, y + .295 * unit, x + .285 * unit, y + .345 * unit,
-                             fill="#697474", outline="")
+                             fill="#697474", outline="", tags=tags)
             mark = WEST_MARKS[piece]
             glyph = (self.chess_font, -max(22, int(unit * .77)))
-            self.create_text(x, y + .018 * unit, text=mark, fill="#e7e6d5", font=glyph)
-            self.create_text(x, y - .018 * unit, text=mark, fill="#142a3d", font=glyph)
+            self.create_text(x, y + .018 * unit, text=mark, fill="#e7e6d5", font=glyph, tags=tags)
+            self.create_text(x, y - .018 * unit, text=mark, fill="#142a3d", font=glyph, tags=tags)
         else:
             radius = unit * .358
-            self._disc(x + .024 * unit, y + .046 * unit, radius, fill="#957054", outline="")
-            self._disc(x, y, radius, fill="#f9e4c0", outline="#8b4037", width=max(1.5, .033 * unit))
-            self._disc(x, y, radius * .84, outline="#c9966c")
+            self._disc(x + .024 * unit, y + .046 * unit, radius, fill="#957054", outline="", tags=tags)
+            self._disc(x, y, radius, fill="#f9e4c0", outline="#8b4037", width=max(1.5, .033 * unit), tags=tags)
+            self._disc(x, y, radius * .84, outline="#c9966c", tags=tags)
             self.create_text(x, y - .012 * unit, text=EAST_MARKS[piece], fill="#882e29",
-                             font=(self.chinese_font, -max(16, int(unit * .445)), "bold"))
+                             font=(self.chinese_font, -max(16, int(unit * .445)), "bold"), tags=tags)

@@ -12,7 +12,8 @@ from .board import (
     CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS,
     Board, coordinates,
 )
-from .board_view import BoardView, WEST_MARKS, STAGE, LEGAL, CAPTURE, LAST_MOVE
+from .board_view import BoardView, WEST_MARKS, STAGE, LEGAL, CAPTURE, LAST_MOVE, PREMOVE
+from .premove import MAX_PREMOVES, PremoveQueue, possible_moves
 from .search import Search
 
 APP_BG = "#f2eee5"
@@ -77,7 +78,7 @@ class GameApp:
         width, height = min(1180, screen_w - 28), max(630, min(900, screen_h - 105))
         root.geometry(f"{width}x{height}+{max(0, (screen_w - width) // 2)}+{max(0, (screen_h - height - 44) // 2)}")
         root.protocol("WM_DELETE_WINDOW", self.close)
-        root.bind("<Escape>", lambda _: self.pick(None))
+        root.bind("<Escape>", lambda _: self._escape_board())
         root.bind("<Control-z>", lambda _: self.undo())
         root.grid_columnconfigure(0, weight=1)
         root.grid_rowconfigure(1, weight=1)
@@ -92,9 +93,14 @@ class GameApp:
         stage = tk.Frame(body, bg=STAGE, highlightbackground=BORDER, highlightthickness=1)
         stage.grid(row=0, column=0, sticky="nsew", padx=(0, 15))
         stage.grid_columnconfigure(0, weight=1)
-        stage.grid_rowconfigure(0, weight=1)
-        self.view = BoardView(stage, self.pick, self.ui_font, self.chess_font, self.chinese_font)
-        self.view.grid(row=0, column=0, sticky="nsew")
+        stage.grid_rowconfigure(1, weight=1)
+        self.seats = {
+            CHESS: self._build_seat(stage, CHESS, 0),
+            XIANGQI: self._build_seat(stage, XIANGQI, 2),
+        }
+        self.view = BoardView(stage, self.pick, self.grab, self._cancel_premove_at,
+                              self.ui_font, self.chess_font, self.chinese_font)
+        self.view.grid(row=1, column=0, sticky="nsew")
         self._build_legend(stage)
 
         panel = tk.Frame(body, bg=APP_BG, width=328)
@@ -107,6 +113,12 @@ class GameApp:
         self.think_time = 3
         self.job = None
         self.rules_window = None
+        self.options_window = None
+        self.promotion_window = None
+        self.premoves = PremoveQueue()
+        self.enable_premoves = tk.BooleanVar(root, value=True)
+        self.show_last_move = tk.BooleanVar(root, value=True)
+        self.show_legal_moves = tk.BooleanVar(root, value=True)
         self.displayed_log = None
         self.engine = Search()
         self.new_game()
@@ -172,17 +184,32 @@ class GameApp:
         self._label(title, "Cờ vua × Cờ tướng", 9, fg="#c4cfd3", bg=NAV).pack(anchor="w")
         self.rules_button = self._button(nav, "Luật chơi", self.show_rules, kind="nav")
         self.rules_button.pack(side="right")
+        self.options_button = self._button(nav, "Tùy chọn", self.show_options, kind="nav")
+        self.options_button.pack(side="right", padx=(0, 8))
         self.new_button = self._button(nav, "Ván mới", self.new_game, kind="primary")
         self.new_button.pack(side="right", padx=(0, 8))
         tk.Frame(self.root, bg=GOLD, height=2).grid(row=0, column=0, sticky="sew")
 
+    def _build_seat(self, stage, side, row):
+        bar = tk.Frame(stage, bg=PAPER, padx=9, pady=3)
+        bar.grid(row=row, column=0, sticky="ew", padx=10, pady=(6, 0))
+        west = side == CHESS
+        mark, family, color = ("♚", self.chess_font, WEST) if west else ("帥", self.chinese_font, EAST)
+        tk.Label(bar, text=mark, bg=PAPER, fg=color, font=(family, 11, "bold")).pack(side="left")
+        name = self._label(bar, SIDE_NAMES[side], 9, fg=color, bold=True)
+        name.pack(side="left", padx=(5, 0))
+        status = self._label(bar, "", 9, fg=color, bold=True)
+        status.pack(side="right")
+        return name, status
+
     def _build_legend(self, stage):
-        legend = tk.Frame(stage, bg=STAGE, pady=6)
-        legend.grid(row=1, column=0)
+        legend = tk.Frame(stage, bg=STAGE, pady=5)
+        legend.grid(row=3, column=0)
         for name, color, shape in (
             ("Nước hợp lệ", LEGAL, "dot"),
             ("Ăn quân", CAPTURE, "ring"),
             ("Nước vừa đi", LAST_MOVE, "box"),
+            ("PreMove", PREMOVE, "premove"),
         ):
             item = tk.Frame(legend, bg=STAGE)
             item.pack(side="left", padx=8)
@@ -193,7 +220,8 @@ class GameApp:
             elif shape == "ring":
                 marker.create_oval(3, 3, 13, 13, outline=color, width=2)
             else:
-                marker.create_rectangle(3, 3, 13, 13, fill="#f6dba1", outline=color)
+                fill = "#e7dcfa" if shape == "premove" else "#f6dba1"
+                marker.create_rectangle(3, 3, 13, 13, fill=fill, outline=color)
             self._label(item, name, 9, fg=MUTED, bg=STAGE).pack(side="left")
 
     @staticmethod
@@ -293,7 +321,7 @@ class GameApp:
             return
         self._cancel_bot()
         self.vs_bot = enabled
-        self.selection = None
+        self._clear_plan()
         self._refresh()
         self._maybe_start_bot()
 
@@ -302,7 +330,7 @@ class GameApp:
             return
         self._cancel_bot()
         self.human = side
-        self.selection = None
+        self._clear_plan()
         self._refresh()
         self._maybe_start_bot()
 
@@ -318,13 +346,22 @@ class GameApp:
         self._cancel_bot()
         self.board = Board()
         self.record = []
-        self.selection = None
+        self._clear_plan()
+        self.view.clear_annotations()
         self.bot_note = ""
         self._update_position()
 
-    def _update_position(self):
+    def _update_position(self, apply_premove=False):
         self.legal = self.board.legal_moves()
         self.outcome = self.board.outcome(self.legal)
+        if self.outcome is not None:
+            self.premoves.clear()
+        elif apply_premove and self.premoves:
+            move = self.premoves.take(self.board, self.legal)
+            if move is not None:
+                self._play(move)
+                return
+            self.premove_note = "PreMove đã hủy vì nước đi không còn hợp lệ."
         self.check = self.board.in_check() if self.outcome is None else (
             self.outcome.reason == CHECKMATE
         )
@@ -342,8 +379,33 @@ class GameApp:
 
         side = self.board.turn
         can_play = self.outcome is None and (not self.vs_bot or side == self.human)
-        targets = frozenset(move.dst for move in self.legal if move.src == self.selection)
-        candidates = frozenset(move.src for move in self.legal) if can_play else frozenset()
+        self.planning = (
+            self.outcome is None and self.vs_bot and side != self.human
+            and self.job is not None and self.enable_premoves.get()
+        )
+        projected, rights = self.premoves.project(self.board) if self.planning else (None, self.board.rights)
+        self.input_cells = self.board.cells if projected is None else projected
+        self.input_side = side if can_play else None
+        self.input_moves = ()
+        if can_play:
+            candidates = frozenset(move.src for move in self.legal)
+            self.input_moves = tuple(move for move in self.legal if move.src == self.selection)
+        elif self.planning and len(self.premoves) < MAX_PREMOVES:
+            self.input_side = self.human
+            candidates = frozenset(sq for sq, piece in enumerate(self.input_cells) if SIDE[piece] == self.human)
+            if self.selection in candidates:
+                self.input_moves = possible_moves(self.input_cells, rights, self.selection)
+        else:
+            candidates = frozenset()
+        targets = frozenset(move.dst for move in self.input_moves)
+        for seat_side, (name, status) in self.seats.items():
+            text = SIDE_NAMES[seat_side]
+            if self.vs_bot:
+                role = "Bạn" if seat_side == self.human else "Máy"
+                text += f" · {role}"
+            name.configure(text=text)
+            active = self.outcome is None and seat_side == side
+            status.configure(text=("Bị chiếu" if self.check else "Đang đi") if active else "")
         active_side = side
         color = CAPTURE if self.check else MUTED
         if self.outcome is not None:
@@ -358,7 +420,9 @@ class GameApp:
             if self.vs_bot:
                 context = "LƯỢT CỦA BẠN" if can_play else "LƯỢT CỦA BOT"
             if self.job is not None:
-                detail = "Bot đang suy nghĩ…"
+                detail = self._thinking_message()
+            elif self.premove_note and self.selection is None:
+                detail = self.premove_note
             elif self.selection is not None:
                 piece = self.board.cells[self.selection]
                 destination = f"{len(targets)} điểm đến" if targets else "Hết nước đi"
@@ -383,9 +447,23 @@ class GameApp:
         self.status_label.configure(text=detail, fg=color)
         self.undo_button.configure(state="normal" if self._undo_count() else "disabled")
         self._refresh_history()
-        last = self.record[-1][0] if self.record else None
-        self.view.show_position(self.board, self.selection, targets, last,
-                                self.board.kings[side] if self.check else None, candidates)
+        last = self.record[-1][0] if self.record and self.show_last_move.get() else None
+        self.view.show_position(
+            self.board, self.selection, targets, last,
+            self.board.kings[side] if self.check else None, candidates,
+            projected=projected, premoves=self.premoves.moves, show_targets=self.show_legal_moves.get(),
+        )
+
+    def _thinking_message(self):
+        if not self.planning:
+            return "Bot đang suy nghĩ…"
+        count = len(self.premoves)
+        if self.selection is not None and self.input_moves:
+            name = PIECE_NAMES[self.input_cells[self.selection]]
+            return f"Đặt trước {name} · {coordinates(self.selection)}"
+        if count:
+            return f"PreMove {count}/{MAX_PREMOVES} · Esc để hủy"
+        return self.premove_note or "Bot đang suy nghĩ · Có thể đặt trước"
 
     def _refresh_history(self):
         moves = tuple((move, undo.piece, bool(undo.capture)) for move, undo in self.record)
@@ -410,28 +488,64 @@ class GameApp:
                                   tags=(f"{SIDE[piece]}-{(index - 1) % 2}",))
         self.log.see(row)
 
-    def pick(self, sq):
-        if self.outcome is not None or self.vs_bot and self.board.turn != self.human:
+    def grab(self, sq):
+        if self.input_side is not None and SIDE[self.input_cells[sq]] == self.input_side:
+            self.selection = sq
+            self._refresh()
+
+    def pick(self, sq, dragged=False):
+        if self.input_side is None:
             return
-        if sq is not None and self.selection is not None:
-            candidates = [move for move in self.legal if move.src == self.selection and move.dst == sq]
-            if len(candidates) > 1:
-                self._choose_promotion(candidates)
-                return
-            if candidates:
-                self._play(candidates[0])
-                return
-        self.selection = sq if (sq is not None and sq != self.selection
-                                and SIDE[self.board.cells[sq]] == self.board.turn) else None
+        own_piece = sq is not None and SIDE[self.input_cells[sq]] == self.input_side
+        choices = [move for move in self.input_moves if move.dst == sq]
+        if choices and (dragged or not self.planning or not own_piece):
+            commit = self._queue_move if self.planning else self._play
+            if len(choices) > 1:
+                self._choose_promotion(choices, commit)
+            else:
+                commit(choices[0])
+            return
+        self.selection = sq if not dragged and own_piece and sq != self.selection else None
         self._refresh()
 
-    def _play(self, move):
+    def _queue_move(self, move):
+        if self.planning and self.premoves.add(self.input_cells[move.src], move):
+            self.selection = None
+            self.premove_note = ""
+            self._refresh()
+
+    def _clear_plan(self):
+        self.premoves.clear()
+        self.premove_note = ""
+        self.selection = None
+        if self.promotion_window is not None and self.promotion_window.winfo_exists():
+            self.promotion_window.destroy()
+        self.view.cancel_gestures()
+
+    def _cancel_premove_at(self, sq):
+        if not any(sq in (move.src, move.dst) for move in self.premoves.moves):
+            return False
+        self._clear_plan()
+        self.premove_note = "Đã hủy PreMove."
+        self._refresh()
+        return True
+
+    def _escape_board(self):
+        had_plan = bool(self.premoves)
+        self._clear_plan()
+        if had_plan:
+            self.premove_note = "Đã hủy PreMove."
+        self.view.clear_annotations()
+        self._refresh()
+
+    def _play(self, move, apply_premove=False):
         undo = self.board.push_legal(move)
         if undo is None:
             raise ValueError("GameApp received an illegal move")
         self.record.append((move, undo))
         self.selection = None
-        self._update_position()
+        self.premove_note = ""
+        self._update_position(apply_premove)
 
     def _undo_count(self):
         if not self.record:
@@ -448,7 +562,8 @@ class GameApp:
         for _ in range(count):
             move, before = self.record.pop()
             self.board.pop(move, before)
-        self.selection = None
+        self._clear_plan()
+        self.view.clear_annotations()
         self.bot_note = ""
         self._update_position()
 
@@ -473,6 +588,9 @@ class GameApp:
     def _poll_bot(self, queue):
         if self.job is None or self.job[1] is not queue:
             return
+        if self.promotion_window is not None and self.promotion_window.winfo_exists():
+            self.root.after(35, self._poll_bot, queue)
+            return
         try:
             result = queue.get_nowait()
         except Empty:
@@ -481,10 +599,10 @@ class GameApp:
         self.job = None
         if result is not None and result.move in self.legal:
             self.bot_note = f"Bot · sâu {result.depth} · {result.nodes:,} nút".replace(",", ".")
-            self._play(result.move)
+            self._play(result.move, apply_premove=True)
         else:
             self.bot_note = "Bot đã dùng một nước dự phòng"
-            self._play(self.legal[0])
+            self._play(self.legal[0], apply_premove=True)
 
     def _cancel_bot(self):
         if self.job is not None:
@@ -514,8 +632,9 @@ class GameApp:
         if modal:
             dialog.grab_set()
 
-    def _choose_promotion(self, moves):
+    def _choose_promotion(self, moves, commit):
         dialog = self._dialog("Phong cấp")
+        self.promotion_window = dialog
         tk.Frame(dialog, bg=GOLD, height=3).pack(fill="x")
         content = tk.Frame(dialog, bg=PAPER, padx=20, pady=17)
         content.pack(fill="both", expand=True)
@@ -525,7 +644,7 @@ class GameApp:
 
         def promote(move):
             dialog.destroy()
-            self._play(move)
+            commit(move)
 
         for index, move in enumerate(moves):
             piece = move.promotion
@@ -536,6 +655,38 @@ class GameApp:
             button.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 5, 0))
         self._button(content, "Hủy", dialog.destroy).pack(anchor="e")
         self._show_dialog(dialog, modal=True)
+
+    def _board_options_changed(self):
+        if not self.enable_premoves.get() and (self.planning or self.premoves):
+            self._clear_plan()
+        self._refresh()
+
+    def show_options(self):
+        if self.options_window is not None and self.options_window.winfo_exists():
+            self.options_window.lift()
+            self.options_window.focus_set()
+            return
+        dialog = self._dialog("Tùy chọn bàn cờ")
+        self.options_window = dialog
+        body = tk.Frame(dialog, bg=PAPER, padx=20, pady=15)
+        body.pack(fill="both", expand=True)
+        self._label(body, "Tùy chọn bàn cờ", 17, bold=True, heading=True).pack(anchor="w", pady=(0, 8))
+        for title, setting in (
+            ("Cho phép PreMove khi đấu máy", self.enable_premoves),
+            ("Đánh dấu nước vừa đi", self.show_last_move),
+            ("Hiện các điểm đến khi chọn quân", self.show_legal_moves),
+        ):
+            tk.Checkbutton(
+                body, text=title, variable=setting, command=self._board_options_changed,
+                bg=PAPER, activebackground=PAPER, fg=INK, selectcolor=SOFT,
+                font=(self.ui_font, 10), anchor="w",
+            ).pack(fill="x", pady=2)
+        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=9)
+        self._label(body, "Nhấp hoặc kéo thả để đi quân. Chuột phải tô điểm. "
+                    "Giữ chuột phải và kéo để vẽ mũi tên. Nhấp trái để xóa dấu.",
+                    9, fg=MUTED, wrap=335).pack(anchor="w")
+        self._button(body, "Đóng", dialog.destroy, kind="primary").pack(anchor="e", pady=(11, 0))
+        self._show_dialog(dialog)
 
     def show_rules(self):
         if self.rules_window is not None and self.rules_window.winfo_exists():

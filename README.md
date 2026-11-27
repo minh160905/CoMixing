@@ -12,7 +12,13 @@ python -m co_xam
 
 Cần Python 3.10 trở lên có Tkinter. Trò chơi dùng thư viện chuẩn của Python.
 
-Chọn quân rồi bấm vào một điểm đến được đánh dấu. Nút **Hoàn tác** lùi một nước trong chế độ hai người. Khi đấu máy, nút này đưa ván cờ về trước nước gần nhất của bạn. Đổi chế độ hoặc bên cầm quân giữ nguyên thế cờ hiện tại. Nút **Ván mới** đặt lại bàn cờ.
+Chọn quân rồi bấm vào điểm đến, hoặc kéo thả quân tới điểm đó. Nút **Hoàn tác** lùi một nước trong chế độ hai người. Khi đấu máy, nút này đưa ván cờ về trước nước gần nhất của bạn. Đổi chế độ hoặc bên cầm quân giữ nguyên thế cờ hiện tại. Nút **Ván mới** đặt lại bàn cờ.
+
+## PreMove và đánh dấu bàn cờ
+
+- Trong chế độ **Đấu máy**, đặt trước tối đa năm nước của mình khi máy đang tính. Màu tím thể hiện các nước dự kiến. Mỗi nước được kiểm tra lại khi tới lượt, và hàng đợi bị hủy nếu nước kế tiếp không còn hợp lệ. Nhấn **Esc** hoặc bấm chuột phải vào điểm đã đặt để hủy.
+- Bấm chuột phải vào ô hoặc giao điểm để tô dấu. Kéo bằng chuột phải để vẽ mũi tên. Giữ **Shift** để dùng xanh lá, **Alt** để dùng xanh dương, hoặc **Ctrl** để đổi giữa đỏ và vàng. Nhấp trái vào bàn để xóa các dấu tự vẽ.
+- Vào **Tùy chọn** để bật hoặc tắt PreMove, điểm đến hoặc dấu nước đi gần nhất.
 
 ## Quy ước cho luật kết hợp
 
