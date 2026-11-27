@@ -3,7 +3,9 @@
 from math import floor, hypot
 import tkinter as tk
 
-from .board import FILES, RIVER, SQUARES, WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP, square
+from .board import (
+    FILES, RIVER, SQUARES, WESTERN_PALACE, WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP, square,
+)
 
 STAGE = "#e9e3d7"
 FRAME = "#293c4e"
@@ -221,6 +223,13 @@ class BoardView(tk.Canvas):
         for col, label in enumerate("abcdefgh"):
             self.create_text(left + (col + .5) * unit, top - .25 * unit,
                              text=label, fill=coord_color, font=coord_font)
+
+        if self.board.balanced:
+            x1, y1 = self.point(min(WESTERN_PALACE))
+            x2, y2 = self.point(max(WESTERN_PALACE))
+            edge = .49 * unit
+            self.create_rectangle(x1 - edge, y1 - edge, x2 + edge, y2 + edge,
+                                  outline="#225679", width=max(2, .038 * unit), tags=("western-palace",))
 
         self.create_rectangle(left, shore, right, bank, fill="#304f63", outline="")
         self.create_line(left, shore + 1, right, shore + 1, fill="#a0b4b8")

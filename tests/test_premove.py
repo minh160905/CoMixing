@@ -1,6 +1,6 @@
 import unittest
 
-from co_xam.board import Board, CHESS, XIANGQI, EMPTY, WN, WP, WQ, XC, XR, Move, square
+from co_xam.board import Board, CHESS, XIANGQI, EMPTY, WK, WN, WP, WQ, WR, XC, XR, Move, square
 from co_xam.premove import MAX_PREMOVES, PremoveQueue, possible_moves
 from tests.test_game import position
 
@@ -47,6 +47,21 @@ class PremoveRules(unittest.TestCase):
         occupied = position((6, 3, WP), (7, 4, XC), turn=CHESS)
         queue.add(WP, move)
         self.assertEqual(queue.take(occupied, occupied.legal_moves()), move)
+
+    def test_western_king_planning_uses_balanced_palace(self):
+        cells = Board().cells
+        cells[4] = WK
+        cells[0] = cells[7] = WR
+        choices = possible_moves(cells, 3, 4, balanced=True)
+        self.assertIn(Move(4, 2, rook_from=0, rook_to=3), choices)
+        self.assertNotIn(Move(4, 6, rook_from=7, rook_to=5), choices)
+        cells[4] = EMPTY
+        origin = square(2, 5)
+        cells[origin] = WK
+        choices = possible_moves(cells, 0, origin, balanced=True)
+        self.assertIn(Move(origin, square(2, 4)), choices)
+        self.assertNotIn(Move(origin, square(2, 6)), choices)
+        self.assertNotIn(Move(origin, square(3, 5)), choices)
 
     def test_promotion_choices_and_queue_limit(self):
         src, dst = square(7, 2), square(8, 2)

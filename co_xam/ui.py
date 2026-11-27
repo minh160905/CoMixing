@@ -41,6 +41,9 @@ REASONS = {
 
 RULES = (
     ("Bắt đầu", "Cờ tướng đi trước. Chọn quân rồi chọn một điểm được đánh dấu để đi."),
+    ("Cổ điển và Cân bằng", "Ở bộ luật Cân bằng, Vua cờ vua chỉ đi trong cung 4 × 3, "
+     "từ cột c đến f và từ hàng 8 đến 6. Đường viền xanh trên bàn đánh dấu cung Vua. "
+     "Vua có thể nhập thành xa nếu đủ điều kiện."),
     ("Qua sông", "Một nước vượt sông dừng ở bờ đến. Ô cờ vua ứng với hai giao điểm "
      "cờ tướng kề nó. Đường kẻ ngoài cùng chỉ có một ô cờ vua tương ứng."),
     ("Hậu, Tượng và Tốt", "Hậu và Tượng cờ vua đi tối đa hai bước khi xuất phát "
@@ -108,6 +111,8 @@ class GameApp:
         panel.pack_propagate(False)
         self._build_controls(panel)
 
+        self.balanced = False
+        self.saved_games = {}
         self.vs_bot = False
         self.human = CHESS
         self.think_time = 3
@@ -247,7 +252,12 @@ class GameApp:
 
         settings = self._card(panel)
         settings.pack(fill="x", pady=(0, 9))
-        self.mode_buttons = self._options(settings, "Chế độ chơi", (("Hai người", False), ("Đấu máy", True)), self.set_mode)
+        self.ruleset_buttons = self._options(
+            settings, "Bộ luật", (("Cổ điển", False), ("Cân bằng", True)), self.set_ruleset
+        )
+        self.mode_buttons = self._options(
+            settings, "Chế độ chơi", (("Hai người", False), ("Đấu máy", True)), self.set_mode, margin=7
+        )
         self.bot_panel = tk.Frame(settings, bg=PAPER)
         self.side_buttons = self._options(
             self.bot_panel, "Bạn cầm", (("Cờ vua", CHESS), ("Cờ tướng", XIANGQI)), self.set_human, margin=7
@@ -316,6 +326,21 @@ class GameApp:
             button.normal_color = normal
             button.configure(bg=normal, fg=foreground, activebackground=hover, activeforeground=foreground)
 
+    def set_ruleset(self, balanced):
+        if balanced == self.balanced:
+            return
+        self._cancel_bot()
+        self.saved_games[self.balanced] = self.board, self.record, self.bot_note
+        self.balanced = balanced
+        saved = self.saved_games.pop(balanced, None)
+        if saved is None:
+            self.new_game()
+            return
+        self.board, self.record, self.bot_note = saved
+        self._clear_plan()
+        self.view.clear_annotations()
+        self._update_position()
+
     def set_mode(self, enabled):
         if enabled == self.vs_bot:
             return
@@ -344,7 +369,7 @@ class GameApp:
 
     def new_game(self):
         self._cancel_bot()
-        self.board = Board()
+        self.board = Board(balanced=self.balanced)
         self.record = []
         self._clear_plan()
         self.view.clear_annotations()
@@ -369,6 +394,7 @@ class GameApp:
         self._maybe_start_bot()
 
     def _refresh(self):
+        self._set_active(self.ruleset_buttons, self.balanced)
         self._set_active(self.mode_buttons, self.vs_bot)
         self._set_active(self.side_buttons, self.human)
         self._set_active(self.time_buttons, self.think_time)
@@ -394,7 +420,9 @@ class GameApp:
             self.input_side = self.human
             candidates = frozenset(sq for sq, piece in enumerate(self.input_cells) if SIDE[piece] == self.human)
             if self.selection in candidates:
-                self.input_moves = possible_moves(self.input_cells, rights, self.selection)
+                self.input_moves = possible_moves(
+                    self.input_cells, rights, self.selection, balanced=self.board.balanced
+                )
         else:
             candidates = frozenset()
         targets = frozenset(move.dst for move in self.input_moves)

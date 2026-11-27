@@ -10,6 +10,7 @@ FILES, RANKS = 9, 9
 SIZE = FILES * RANKS
 RIVER = 4
 PALACE_CENTER = 7 * FILES + 4
+WESTERN_PALACE = frozenset(row * FILES + col for row in range(3) for col in range(2, 6))
 CANNON_UNLOCK_PLY = 5
 SQUARES = tuple(sq for sq in range(SIZE) if sq // FILES >= RIVER or sq % FILES < 8)
 ORTHOGONAL = ((-1, 0), (1, 0), (0, -1), (0, 1))
@@ -155,11 +156,18 @@ def _build_geometry():
 
 _build_geometry()
 
+PALACE_KING_JUMPS = tuple(
+    tuple(route for route in JUMPS[WK][src] if route[0] in WESTERN_PALACE)
+    if src in WESTERN_PALACE else ()
+    for src in range(SIZE)
+)
+
 _rng = Random(0xC0A9)
 _PIECE_KEYS = tuple(tuple(_rng.getrandbits(64) for _ in range(SIZE)) for _ in SIDE)
 _SIDE_KEY = _rng.getrandbits(64)
 _CASTLE_KEYS = tuple(_rng.getrandbits(64) for _ in range(4))
 _OPENING_KEYS = tuple(_rng.getrandbits(64) for _ in range(CANNON_UNLOCK_PLY + 1))
+_BALANCED_KEY = _rng.getrandbits(64)
 _PIECE_BITS = tuple(1 << piece if piece else 0 for piece in range(len(SIDE)))
 _HISTORY_SALT = 0x9E3779B97F4A7C15
 _MASK_64 = (1 << 64) - 1
@@ -199,13 +207,16 @@ class Outcome:
 class Board:
     """A flat board with constant-time make/unmake and indexed piece locations."""
 
-    def __init__(self, pieces=None, turn=XIANGQI, rights=None, ply=0):
+    def __init__(self, pieces=None, turn=XIANGQI, rights=None, ply=0, *, balanced=False):
         starting = pieces is None
         self.cells = [EMPTY] * SIZE
         self.positions = [set(), set()]
         self.kings = [-1, -1]
         self.turn = turn
+        self.balanced = balanced
         self.rights = (QUEENSIDE | KINGSIDE if starting else 0) if rights is None else rights
+        if balanced:
+            self.rights &= QUEENSIDE
         self.ply = ply
         self.quiet = 0
         if starting:
@@ -217,6 +228,8 @@ class Board:
                 **{square(5, c): XP for c in (0, 2, 4, 6, 8)},
             }
         self.key = _CASTLE_KEYS[self.rights] ^ _OPENING_KEYS[min(self.ply, CANNON_UNLOCK_PLY)]
+        if balanced:
+            self.key ^= _BALANCED_KEY
         if turn == XIANGQI:
             self.key ^= _SIDE_KEY
         for sq, piece in pieces.items():
@@ -234,6 +247,7 @@ class Board:
         snapshot.positions = [p.copy() for p in self.positions]
         snapshot.kings = self.kings.copy()
         snapshot.turn = self.turn
+        snapshot.balanced = self.balanced
         snapshot.rights = self.rights
         snapshot.ply = self.ply
         snapshot.quiet = self.quiet
@@ -263,6 +277,8 @@ class Board:
         cells = self.cells
         for src, piece, blocker in JUMP_ATTACKS[by_side][target]:
             if cells[src] == piece and (blocker < 0 or not cells[blocker]):
+                if self.balanced and piece == WK and (src not in WESTERN_PALACE or target not in WESTERN_PALACE):
+                    continue
                 return True
         if by_side == CHESS:
             for src, mask, path in RAY_ATTACKS[CHESS][target]:
@@ -321,7 +337,8 @@ class Board:
                         if src // FILES == 1 and not cells[dst + FILES]:
                             yield Move(src, dst + FILES)
             used_destinations = set() if MULTIPLE_ROUTES[piece][src] else None
-            for dst, blocker in JUMPS[piece][src]:
+            jumps = PALACE_KING_JUMPS[src] if self.balanced and piece == WK else JUMPS[piece][src]
+            for dst, blocker in jumps:
                 target = cells[dst]
                 if dst == opposing_king or target and SIDE[target] == side:
                     continue
@@ -416,6 +433,8 @@ class Board:
         return undo
 
     def push_legal(self, move):
+        if self.balanced and self.cells[move.src] == WK and move.dst not in WESTERN_PALACE:
+            return None
         undo = self.push(move)
         if self.in_check(1 - self.turn) or self.royals_face():
             self.pop(move, undo)

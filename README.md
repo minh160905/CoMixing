@@ -12,7 +12,11 @@ python -m co_xam
 
 Cần Python 3.10 trở lên có Tkinter. Trò chơi dùng thư viện chuẩn của Python.
 
-Chọn quân rồi bấm vào điểm đến, hoặc kéo thả quân tới điểm đó. Nút **Hoàn tác** lùi một nước trong chế độ hai người. Khi đấu máy, nút này đưa ván cờ về trước nước gần nhất của bạn. Đổi chế độ hoặc bên cầm quân giữ nguyên thế cờ hiện tại. Nút **Ván mới** đặt lại bàn cờ.
+Chọn quân rồi bấm vào điểm đến, hoặc kéo thả quân tới điểm đó. Nút **Hoàn tác** lùi một nước trong chế độ hai người. Khi đấu máy, nút này đưa ván cờ về trước nước gần nhất của bạn. Đổi giữa **Hai người** và **Đấu máy** hoặc đổi bên cầm quân sẽ giữ thế cờ hiện tại.
+
+Trong mục **Bộ luật**, chọn **Cổ điển** hoặc **Cân bằng**. Mỗi bộ luật có một ván riêng trong phiên chơi. Đổi bộ luật sẽ mở hoặc tiếp tục ván tương ứng. Nút **Ván mới** đặt lại ván đang xem.
+
+Ở bộ luật **Cân bằng**, Vua cờ vua chỉ được đi trong cung **c8–f6**, gồm các cột c, d, e, f và ba hàng 8, 7, 6. Đường viền xanh đánh dấu cung. Vua được nhập thành xa về c8 khi đủ điều kiện.
 
 ## PreMove và đánh dấu bàn cờ
 

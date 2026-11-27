@@ -2,7 +2,7 @@
 
 from .board import (
     EMPTY, FILES, FORWARD, JUMPS, KINGSIDE, PROMOTIONS, QUEENSIDE,
-    RANKS, RAYS, WK, WP, WR, Move,
+    PALACE_KING_JUMPS, RANKS, RAYS, WESTERN_PALACE, WK, WP, WR, Move,
 )
 
 MAX_PREMOVES = 5
@@ -12,12 +12,13 @@ _CASTLES = (
 )
 
 
-def possible_moves(cells, rights, src):
+def possible_moves(cells, rights, src, *, balanced=False):
     """Offer geometrically possible moves before the opponent has played."""
     piece = cells[src]
     if not piece:
         return ()
-    destinations = {dst for dst, _ in JUMPS[piece][src]}
+    jumps = PALACE_KING_JUMPS[src] if balanced and piece == WK else JUMPS[piece][src]
+    destinations = {dst for dst, _ in jumps}
     for ray in RAYS[piece][src]:
         for group in ray:
             destinations.update(group)
@@ -32,7 +33,10 @@ def possible_moves(cells, rights, src):
         else:
             choices.append(Move(src, dst))
     if piece == WK and src == 4:
-        choices.extend(move for flag, move in _CASTLES if rights & flag and cells[move.rook_from] == WR)
+        choices.extend(
+            move for flag, move in _CASTLES
+            if rights & flag and cells[move.rook_from] == WR and (not balanced or move.dst in WESTERN_PALACE)
+        )
     return tuple(choices)
 
 

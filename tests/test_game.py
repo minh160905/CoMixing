@@ -53,6 +53,51 @@ class BoardRules(unittest.TestCase):
                 self.assertEqual(board.legal_moves().count(move), 1)
                 self.assertEqual(board.pseudo_moves(tactical_only=True).count(move), 1)
 
+    def test_balanced_palace_limits_king_moves_and_attacks(self):
+        origin = square(2, 3)
+        outside = square(3, 3)
+        inner = square(1, 2)
+        pieces = {origin: WK, square(8, 5): XK, outside: XC}
+        classic = Board(pieces, turn=CHESS, ply=6)
+        balanced = Board(pieces, turn=CHESS, ply=6, balanced=True)
+
+        capture = Move(origin, outside)
+        self.assertIn(capture, classic.legal_moves())
+        self.assertTrue(classic.is_attacked(outside, CHESS))
+        self.assertNotIn(capture, balanced.pseudo_moves(tactical_only=True))
+        self.assertIsNone(balanced.push_legal(capture))
+        self.assertFalse(balanced.is_attacked(outside, CHESS))
+        self.assertIn(Move(origin, inner), balanced.legal_moves())
+        self.assertTrue(balanced.is_attacked(inner, CHESS))
+        self.assertNotEqual(classic.key, balanced.key)
+
+        snapshot = balanced.copy()
+        self.assertTrue(snapshot.balanced)
+        self.assertEqual(snapshot.key, balanced.key)
+        self.assertEqual(set(snapshot.legal_moves()), set(balanced.legal_moves()))
+        result = Search(table_bits=8).analyze(snapshot, 1, max_depth=2)
+        self.assertIn(result.move, balanced.legal_moves())
+        self.assertNotEqual(result.move, capture)
+
+    def test_balanced_castling_stays_in_the_palace(self):
+        pieces = {0: WR, 4: WK, 7: WR, square(8, 4): XK, square(5, 4): XP}
+        rights = QUEENSIDE | KINGSIDE
+        classic = Board(pieces, turn=CHESS, rights=rights, ply=6)
+        balanced = Board(pieces, turn=CHESS, rights=rights, ply=6, balanced=True)
+        long_castle = Move(4, 2, rook_from=0, rook_to=3)
+        short_castle = Move(4, 6, rook_from=7, rook_to=5)
+        self.assertIn(short_castle, classic.legal_moves())
+        self.assertNotIn(short_castle, balanced.legal_moves())
+        self.assertIsNone(balanced.push_legal(short_castle))
+        self.assertEqual(balanced.rights, QUEENSIDE)
+        self.assertIn(long_castle, balanced.legal_moves())
+        before = signature(balanced)
+        undo = balanced.push_legal(long_castle)
+        self.assertEqual(balanced.kings[CHESS], 2)
+        self.assertEqual(balanced.cells[3], WR)
+        balanced.pop(long_castle, undo)
+        self.assertEqual(signature(balanced), before)
+
     def test_western_pawn_crosses_only_to_empty_points_beside_its_file(self):
         pawn = square(3, 4)  # e5
         left = square(4, 4)  # 5/5
