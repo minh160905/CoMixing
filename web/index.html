@@ -30,7 +30,7 @@
   <main class="arena">
     <section class="playing-area surface" aria-label="Khu vực bàn cờ">
       <div class="seat west" id="seat-west">
-        <span class="seat-icon" aria-hidden="true">♚</span>
+        <span class="seat-icon" aria-hidden="true">♔</span>
         <div class="seat-name">Cờ vua <span class="seat-role"></span></div>
         <span class="seat-status"></span>
       </div>
@@ -79,6 +79,22 @@
             <button type="button" data-mode="bot" aria-pressed="false">Đấu máy</button>
           </div>
         </fieldset>
+        <div class="color-grid">
+          <fieldset>
+            <legend>Màu cờ vua</legend>
+            <div class="segmented">
+              <button type="button" data-chess-color="white" aria-pressed="true">Trắng</button>
+              <button type="button" data-chess-color="black" aria-pressed="false">Đen</button>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Màu cờ tướng</legend>
+            <div class="segmented">
+              <button type="button" data-xiangqi-color="red" aria-pressed="true">Đỏ</button>
+              <button type="button" data-xiangqi-color="black" aria-pressed="false">Đen</button>
+            </div>
+          </fieldset>
+        </div>
         <div id="bot-settings" hidden>
           <fieldset>
             <legend>Bạn cầm</legend>
@@ -139,7 +155,7 @@
       <label class="check-setting"><input type="checkbox" id="enable-premove" checked>Cho phép PreMove khi đấu máy</label>
       <label class="check-setting"><input type="checkbox" id="show-last" checked>Đánh dấu nước vừa đi</label>
       <label class="check-setting"><input type="checkbox" id="show-targets" checked>Hiện các điểm đến khi chọn quân</label>
-      <p>Nhấp hoặc kéo thả để đi quân. Bấm chuột phải để tô điểm và kéo chuột phải để vẽ mũi tên. Nhấp trái hoặc nhấn Esc để xóa dấu.</p>
+      <p>Nhấp hoặc kéo thả để đi quân. Chuột phải vào quân đối thủ để xem các ô bị đe dọa. Bấm chuột phải vào ô trống để tô điểm và kéo chuột phải để vẽ mũi tên. Nhấp trái hoặc nhấn Esc để xóa dấu.</p>
       <form method="dialog"><button type="submit" class="primary">Đóng</button></form>
     </div>
   </dialog>

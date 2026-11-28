@@ -39,3 +39,11 @@ class WebGame(TestCase):
         self.assertIn([square(3, 5), 0], config["geometry"][WK][square(2, 5)])
         self.assertNotIn(square(3, 5), config["palace"])
         self.assertEqual(config["maxPremoves"], 5)
+
+    def test_state_reports_piece_threats(self):
+        start = game_state({"rules": "classic"})
+        knight_b8 = str(square(0, 1))
+        self.assertEqual(set(start["threats"][knight_b8]), {square(2, 0), square(2, 2)})
+        cannon = str(square(6, 1))
+        # Left cannon uses right cannon at (6, 7) as a friendly screen to threaten (6, 8).
+        self.assertEqual(start["threats"][cannon], [square(6, 8)])

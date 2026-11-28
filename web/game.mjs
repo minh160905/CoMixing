@@ -4,10 +4,18 @@ const $ = (id) => document.getElementById(id);
 const rows = $("move-log");
 const promotion = $("promotion");
 const games = new Map();
-const settings = {rules: "classic", mode: "local", human: 0, seconds: 3};
-const promotionIcons = {"2": "♛", "3": "♜", "4": "♝", "5": "♞"};
+const settings = {
+  rules: "classic", mode: "local", human: 0, seconds: 3,
+  chessColor: "white", xiangqiColor: "red",
+};
+const promotionIcons = {
+  white: {"2": "♕", "3": "♖", "4": "♗", "5": "♘"},
+  black: {"2": "♛", "3": "♜", "4": "♝", "5": "♞"},
+};
 const WK = 1;
 const WR = 3;
+const validPieceColors = (chessColor, xiangqiColor) => !(chessColor === "black" && xiangqiColor === "black");
+const boardFlipped = () => settings.mode === "bot" && settings.human === 0;
 
 let config = null;
 let active = null;
@@ -15,6 +23,7 @@ let retry = null;
 let error = "";
 let notice = "";
 let selection = null;
+let threatSource = null;
 let pending = [];
 let logGame = null;
 
@@ -23,12 +32,14 @@ const records = (game = current()) => game?.records ?? [];
 const history = (game = current()) => records(game).map(({move}) => move);
 const sameMove = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 const botTurn = (game = current()) => settings.mode === "bot" && game && !game.outcome && game.turn !== settings.human;
+const opponentSide = (game = current()) => (settings.mode === "bot" ? 1 - settings.human : (game ? 1 - game.turn : null));
 const castleFor = (move) => config.castles.find((castle) => sameMove(castle.move, move));
 
 const board = new BoardView($("board"), {
   choose,
   grab(square) {
     if (input().candidates.has(square)) {
+      threatSource = null;
       selection = square;
       render();
     }
@@ -39,6 +50,21 @@ const board = new BoardView($("board"), {
     notice = "Đã hủy PreMove.";
     render();
     return true;
+  },
+  inspectThreat(square) {
+    const game = current();
+    const opp = opponentSide(game);
+    const piece = game?.cells[square];
+    if (game && config && piece && config.sideByPiece[piece] === opp) {
+      threatSource = threatSource === square ? null : square;
+      render();
+      return true;
+    }
+    if (threatSource !== null) {
+      threatSource = null;
+      render();
+    }
+    return false;
   },
   focus(square) {
     if (!config) return;
@@ -108,11 +134,19 @@ function input() {
 function clearSelection() {
   pending = [];
   selection = null;
+  threatSource = null;
   notice = "";
 }
 
 function choose(square, dragged) {
   const frame = input();
+  if (threatSource !== null) {
+    threatSource = null;
+    if (frame.side === null) {
+      render();
+      return;
+    }
+  }
   if (frame.side === null) return;
   const own = square !== null && config.sideByPiece[frame.cells[square]] === frame.side;
   const choices = frame.moves.filter((move) => move[1] === square);
@@ -144,7 +178,7 @@ function choosePromotion(choices, frame) {
     button.type = "button";
     icon.className = "promotion-icon";
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = promotionIcons[move[2]];
+    icon.textContent = promotionIcons[settings.chessColor][move[2]];
     button.append(icon, config.pieces[move[2]]);
     button.addEventListener("click", () => {
       promotion.close();
@@ -192,6 +226,7 @@ async function request(action, moves, move = null) {
     games.set(task.rules, next);
     active = null;
     selection = null;
+    threatSource = null;
     if (next.outcome) pending = [];
     if (action === "bot" && pending.length) {
       const entry = pending.shift();
@@ -257,6 +292,26 @@ function render() {
       button.setAttribute("aria-pressed", String(button.dataset[type] === String(settings[type])));
     }
   }
+  for (const button of document.querySelectorAll("[data-chess-color]")) {
+    const value = button.dataset.chessColor;
+    button.setAttribute("aria-pressed", String(value === settings.chessColor));
+    button.disabled = !validPieceColors(value, settings.xiangqiColor);
+  }
+  for (const button of document.querySelectorAll("[data-xiangqi-color]")) {
+    const value = button.dataset.xiangqiColor;
+    button.setAttribute("aria-pressed", String(value === settings.xiangqiColor));
+    button.disabled = !validPieceColors(settings.chessColor, value);
+  }
+  const flipped = boardFlipped();
+  const opp = opponentSide(game);
+  if (threatSource !== null) {
+    const inspected = game?.cells[threatSource];
+    if (!inspected || !config || config.sideByPiece[inspected] !== opp) threatSource = null;
+  }
+  const threatList = threatSource !== null ? (game?.threats?.[String(threatSource)] ?? []) : [];
+  const threatTargets = new Set(threatList);
+  const threatCaptures = new Set(threatList.filter((sq) => Boolean(game?.cells[sq])));
+  document.querySelector(".playing-area").classList.toggle("flipped", flipped);
   $("bot-settings").hidden = settings.mode !== "bot";
   $("undo").disabled = !undoCount(game) || Boolean(active && active.action !== "bot");
   $("new-game").disabled = !config;
@@ -278,6 +333,10 @@ function render() {
     if (selection !== null && frame.candidates.has(selection)) {
       const name = config.pieces[frame.cells[selection]];
       detail = (frame.planning ? "Đặt trước " : "") + name + " · " + config.coords[selection];
+    } else if (threatSource !== null && !error) {
+      const name = config.pieces[game.cells[threatSource]];
+      const hitNote = threatCaptures.size ? " (" + threatCaptures.size + " quân bị đe dọa)" : "";
+      detail = "Đe dọa: " + name + " · " + config.coords[threatSource] + " · " + threatTargets.size + " ô" + hitNote;
     }
     if (game.check !== null && !error) detail = "Đang bị chiếu · " + detail;
   } else if (!error) {
@@ -288,12 +347,15 @@ function render() {
   $("detail").textContent = detail;
   $("detail").classList.toggle("error", Boolean(error));
   $("retry").hidden = !retry;
-  $("turn-symbol").textContent = activeSide === 1 ? "帥" : activeSide === null ? "=" : "♚";
+  const chessMark = settings.chessColor === "white" ? "♔" : "♚";
+  const xiangqiMark = settings.xiangqiColor === "black" ? "將" : "帥";
+  $("turn-symbol").textContent = activeSide === 1 ? xiangqiMark : activeSide === null ? "=" : chessMark;
   $("turn-symbol").classList.toggle("east", activeSide === 1);
 
   [$("seat-west"), $("seat-east")].forEach((seat, side) => {
     const playing = Boolean(game && !game.outcome && game.turn === side);
     seat.classList.toggle("active", playing);
+    seat.querySelector(".seat-icon").textContent = side === 0 ? chessMark : xiangqiMark;
     seat.querySelector(".seat-role").textContent = settings.mode === "bot" ? (settings.human === side ? "Bạn" : "Máy") : "";
     seat.querySelector(".seat-status").textContent = playing ? (game.check !== null ? "Bị chiếu" : "Đang đi") : "";
   });
@@ -304,6 +366,8 @@ function render() {
     palace: config && settings.rules === "balanced" ? config.palace : [],
     showTargets: $("show-targets").checked,
     last: $("show-last").checked ? records(game).at(-1)?.move : null, check: game?.check,
+    flipped, chessColor: settings.chessColor, xiangqiColor: settings.xiangqiColor,
+    threatSource, threatTargets, threatCaptures,
   });
 }
 
@@ -331,6 +395,22 @@ for (const type of ["mode", "human", "seconds"]) {
       runBot();
     });
   }
+}
+for (const button of document.querySelectorAll("[data-chess-color]")) {
+  button.addEventListener("click", () => {
+    const color = button.dataset.chessColor;
+    if (settings.chessColor === color || !validPieceColors(color, settings.xiangqiColor)) return;
+    settings.chessColor = color;
+    render();
+  });
+}
+for (const button of document.querySelectorAll("[data-xiangqi-color]")) {
+  button.addEventListener("click", () => {
+    const color = button.dataset.xiangqiColor;
+    if (settings.xiangqiColor === color || !validPieceColors(settings.chessColor, color)) return;
+    settings.xiangqiColor = color;
+    render();
+  });
 }
 for (const button of document.querySelectorAll("[data-dialog]")) {
   button.addEventListener("click", () => $(button.dataset.dialog).showModal());

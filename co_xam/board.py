@@ -309,6 +309,38 @@ class Board:
         side = self.turn if side is None else side
         return self.is_attacked(self.kings[side], 1 - side)
 
+    def threat_targets(self, src):
+        """Return every square currently threatened/attacked by the piece at src."""
+        cells = self.cells
+        piece = cells[src]
+        if not piece:
+            return frozenset()
+        side = SIDE[piece]
+        targets = set()
+        jumps = PALACE_KING_JUMPS[src] if self.balanced and piece == WK else JUMPS[piece][src]
+        for dst, blocker in jumps:
+            if blocker >= 0 and cells[blocker]:
+                continue
+            target = cells[dst]
+            if not target or SIDE[target] != side:
+                targets.add(dst)
+        restricted = self.ply < CANNON_UNLOCK_PLY
+        for ray in RAYS[piece][src]:
+            screen = EMPTY
+            for group in ray:
+                for dst in group:
+                    target = cells[dst]
+                    if piece == XC:
+                        if not (screen and (not restricted or SIDE[screen] == side)):
+                            continue
+                    if not target or SIDE[target] != side:
+                        targets.add(dst)
+                if len(group) == 1 and cells[group[0]]:
+                    if piece != XC or screen:
+                        break
+                    screen = cells[group[0]]
+        return frozenset(targets)
+
     def _castles(self):
         if not self.rights or self.in_check(CHESS):
             return

@@ -11,5 +11,9 @@ await Promise.all([
     new URL("co_xam/assets/western-pieces.png", root),
     new URL("assets/western-pieces.png", output),
   ),
+  copyFile(
+    new URL("co_xam/assets/western-pieces-black.png", root),
+    new URL("assets/western-pieces-black.png", output),
+  ),
 ]);
 console.log("Browser game built in dist/");
