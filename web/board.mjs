@@ -8,25 +8,55 @@ const RIGHT = LEFT + 8;
 const SHORE = TOP + 4;
 const BANK = SHORE + .87;
 const BOTTOM = BANK + 4;
-const XIANGQI_MARKS = ["帥", "車", "炮", "馬", "相", "仕", "兵"];
-const CHESS_MARKS = ["♚", "♛", "♜", "♝", "♞", "♟"];
+const XQ_TOP_FLIP = HEIGHT - BOTTOM;
+const XQ_BANK_FLIP = XQ_TOP_FLIP + 4;
+const CHESS_TOP_FLIP = XQ_BANK_FLIP + .87;
+const CHESS_BOTTOM_FLIP = CHESS_TOP_FLIP + 4;
+const XIANGQI_PALETTES = {
+  red: {
+    marks: ["帥", "車", "炮", "馬", "相", "仕", "兵"],
+    shadow: "#956948", fill: "#f8e0b6", outline: "#74342a", ring: "#bb774f", ink: "#762822",
+  },
+  black: {
+    marks: ["將", "車", "砲", "馬", "象", "士", "卒"],
+    shadow: "#7c6550", fill: "#eee4cf", outline: "#1e2724", ring: "#586862", ink: "#161d1b",
+  },
+};
+const CHESS_MARKS = {
+  white: ["♔", "♕", "♖", "♗", "♘", "♙"],
+  black: ["♚", "♛", "♜", "♝", "♞", "♟"],
+};
 const MARKS = {
   red: ["#ac3542", "#e9869077"], gold: ["#a66326", "#eaba6977"],
   blue: ["#2969ad", "#8cc4f477"], green: ["#236e54", "#8bd5ad77"],
 };
 
-export function point(square) {
+export function point(square, flipped = false, mirrorX = false) {
   const row = Math.floor(square / FILES);
   const col = square % FILES;
-  return row < RIVER ? [LEFT + col + .5, TOP + row + .5] : [LEFT + col, BANK + row - RIVER];
+  if (row < RIVER) {
+    const dispCol = mirrorX ? 7 - col : col;
+    const dispRow = flipped ? 3 - row : row;
+    return [LEFT + dispCol + .5, (flipped ? CHESS_TOP_FLIP : TOP) + dispRow + .5];
+  }
+  const dispCol = mirrorX ? 8 - col : col;
+  const dispRow = flipped ? 8 - row : row - RIVER;
+  return [LEFT + dispCol, (flipped ? XQ_TOP_FLIP : BANK) + dispRow];
 }
 
-function at(x, y) {
+export function at(x, y, flipped = false, mirrorX = false) {
   const col = x - LEFT;
-  if (y >= TOP && y < SHORE && col >= 0 && col < 8) return Math.floor(y - TOP) * FILES + Math.floor(col);
-  const row = y - BANK;
+  const chessTop = flipped ? CHESS_TOP_FLIP : TOP;
+  if (y >= chessTop && y < chessTop + 4 && col >= 0 && col < 8) {
+    const dispRow = Math.floor(y - chessTop);
+    const dispCol = Math.floor(col);
+    return (flipped ? 3 - dispRow : dispRow) * FILES + (mirrorX ? 7 - dispCol : dispCol);
+  }
+  const row = y - (flipped ? XQ_TOP_FLIP : BANK);
   if (row >= -.46 && row <= 4.46 && col >= -.47 && col <= 8.47) {
-    return (RIVER + Math.floor(row + .5)) * FILES + Math.floor(col + .5);
+    const dispRow = Math.floor(row + .5);
+    const dispCol = Math.floor(col + .5);
+    return (flipped ? 8 - dispRow : RIVER + dispRow) * FILES + (mirrorX ? 8 - dispCol : dispCol);
   }
   return null;
 }
@@ -43,15 +73,21 @@ export class BoardView {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.callbacks = callbacks;
-    this.frame = {cells: [], candidates: new Set(), targets: new Set(), premoves: [], palace: []};
+    this.frame = {
+      cells: [], candidates: new Set(), targets: new Set(), premoves: [], palace: [],
+      flipped: false, chessColor: "white", xiangqiColor: "red",
+      threatSource: null, threatTargets: new Set(), threatCaptures: new Set(),
+    };
     this.highlights = new Map();
     this.arrows = new Map();
     this.gesture = null;
     this.cursor = 4;
     this.keyboard = false;
-    this.atlas = new Image();
-    this.atlas.onload = () => this.draw();
-    this.atlas.src = "/assets/western-pieces.png";
+    this.atlases = {white: new Image(), black: new Image()};
+    this.atlases.white.onload = () => this.draw();
+    this.atlases.black.onload = () => this.draw();
+    this.atlases.white.src = "/assets/western-pieces.png";
+    this.atlases.black.src = "/assets/western-pieces-black.png";
 
     new ResizeObserver(() => this.draw()).observe(canvas);
     canvas.addEventListener("contextmenu", (event) => event.preventDefault());
@@ -64,8 +100,18 @@ export class BoardView {
     canvas.addEventListener("blur", () => { this.keyboard = false; this.draw(); });
   }
 
+  isMirrorX(frame = this.frame) {
+    return Boolean(frame.flipped) && (frame.chessColor ?? "white") === "black";
+  }
+
   show(frame) {
-    if (this.frame.revision !== frame.revision) this.gesture = null;
+    if (
+      this.frame.revision !== frame.revision
+      || Boolean(this.frame.flipped) !== Boolean(frame.flipped)
+      || this.isMirrorX(this.frame) !== this.isMirrorX(frame)
+    ) {
+      this.gesture = null;
+    }
     this.frame = frame;
     this.draw();
   }
@@ -95,14 +141,14 @@ export class BoardView {
     this.keyboard = false;
     if (event.button === 0) this.clear();
     const [x, y] = this.pointer(event);
-    const origin = at(x, y);
+    const origin = at(x, y, Boolean(this.frame.flipped), this.isMirrorX());
     this.gesture = {id: event.pointerId, button: event.button, origin, x, y, drag: null, hover: origin};
     this.canvas.setPointerCapture(event.pointerId);
   }
 
   move(event) {
     const [x, y] = this.pointer(event);
-    const square = at(x, y);
+    const square = at(x, y, Boolean(this.frame.flipped), this.isMirrorX());
     const g = this.gesture;
     if (!g) {
       const {candidates, targets} = this.frame;
@@ -126,11 +172,14 @@ export class BoardView {
     const g = this.gesture;
     if (!g || g.id !== event.pointerId) return;
     this.gesture = null;
-    const square = at(...this.pointer(event));
+    const square = at(...this.pointer(event), Boolean(this.frame.flipped), this.isMirrorX());
     if (g.button === 0) {
       this.callbacks.choose(square, Boolean(g.drag));
     } else if (square !== null && g.origin !== null) {
-      if (square === g.origin && this.callbacks.cancelPremove(square)) return;
+      if (square === g.origin) {
+        if (this.callbacks.cancelPremove(square)) return;
+        if (!event.shiftKey && !event.altKey && !event.ctrlKey && this.callbacks.inspectThreat?.(square)) return;
+      }
       const arrows = square !== g.origin;
       const marks = arrows ? this.arrows : this.highlights;
       const key = arrows ? g.origin + "/" + square : square;
@@ -144,6 +193,8 @@ export class BoardView {
   key(event) {
     const row = Math.floor(this.cursor / FILES);
     const col = this.cursor % FILES;
+    const rowStep = this.frame.flipped ? -1 : 1;
+    const colStep = this.isMirrorX() ? -1 : 1;
     let nextRow = row;
     let nextCol = col;
     if (event.key === "Enter" || event.key === " ") {
@@ -151,10 +202,10 @@ export class BoardView {
       this.highlights.clear();
       this.arrows.clear();
       this.callbacks.choose(this.cursor, false);
-    } else if (event.key === "ArrowUp") nextRow = Math.max(0, row - 1);
-    else if (event.key === "ArrowDown") nextRow = Math.min(8, row + 1);
-    else if (event.key === "ArrowLeft") nextCol = Math.max(0, col - 1);
-    else if (event.key === "ArrowRight") nextCol = col + 1;
+    } else if (event.key === "ArrowUp") nextRow = Math.max(0, Math.min(8, row - rowStep));
+    else if (event.key === "ArrowDown") nextRow = Math.max(0, Math.min(8, row + rowStep));
+    else if (event.key === "ArrowLeft") nextCol = Math.max(0, col - colStep);
+    else if (event.key === "ArrowRight") nextCol = Math.max(0, col + colStep);
     else return;
     event.preventDefault();
     nextCol = Math.min(nextRow < RIVER ? 7 : 8, nextCol);
@@ -192,7 +243,7 @@ export class BoardView {
   }
 
   mark(square, fill, stroke, radius = .445) {
-    const [x, y] = point(square);
+    const [x, y] = point(square, Boolean(this.frame.flipped), this.isMirrorX());
     if (square >= 36) {
       this.disc(x, y, radius, fill, stroke, .046);
     } else {
@@ -205,8 +256,10 @@ export class BoardView {
   }
 
   arrow(src, dst, color) {
-    const [x, y] = point(src);
-    const [endX, endY] = point(dst);
+    const flipped = Boolean(this.frame.flipped);
+    const mirrorX = this.isMirrorX();
+    const [x, y] = point(src, flipped, mirrorX);
+    const [endX, endY] = point(dst, flipped, mirrorX);
     const length = Math.hypot(endX - x, endY - y);
     const dx = (endX - x) / length;
     const dy = (endY - y) / length;
@@ -230,21 +283,26 @@ export class BoardView {
 
   piece(piece, x, y) {
     const ctx = this.ctx;
+    const chessColor = this.frame.chessColor ?? "white";
+    const xiangqiColor = this.frame.xiangqiColor ?? "red";
     if (piece <= 6) {
-      if (this.atlas.complete && this.atlas.naturalWidth) {
+      const atlas = this.atlases[chessColor] ?? this.atlases.white;
+      if (atlas.complete && atlas.naturalWidth) {
         const size = Math.max(24, Math.min(128, 4 * Math.round(this.canvas.width / WIDTH * .94 / 4)));
         const n = (size - 24) / 4;
         const stripY = n * (24 + size - 4) / 2;
-        ctx.drawImage(this.atlas, (piece - 1) * size, stripY, size, size, x - .47, y - .47, .94, .94);
+        ctx.drawImage(atlas, (piece - 1) * size, stripY, size, size, x - .47, y - .47, .94, .94);
       } else {
-        this.text(CHESS_MARKS[piece - 1], x, y + .02, "#172a38", .76, "Segoe UI Symbol, serif");
+        const fallback = CHESS_MARKS[chessColor] ?? CHESS_MARKS.white;
+        this.text(fallback[piece - 1], x, y + .02, chessColor === "black" ? "#161d1b" : "#f7f4eb", .76, "Segoe UI Symbol, serif");
       }
       return;
     }
-    this.disc(x + .018, y + .054, .386, "#956948");
-    this.disc(x, y, .385, "#f8e0b6", "#74342a", .04);
-    this.disc(x, y, .321, null, "#bb774f", .019);
-    this.text(XIANGQI_MARKS[piece - 7], x, y + .01, "#762822", .47, "Microsoft YaHei, Noto Sans CJK SC, serif");
+    const palette = XIANGQI_PALETTES[xiangqiColor] ?? XIANGQI_PALETTES.red;
+    this.disc(x + .018, y + .054, .386, palette.shadow);
+    this.disc(x, y, .385, palette.fill, palette.outline, .04);
+    this.disc(x, y, .321, null, palette.ring, .019);
+    this.text(palette.marks[piece - 7], x, y + .01, palette.ink, .47, "Microsoft YaHei, Noto Sans CJK SC, serif");
   }
 
   draw() {
@@ -265,64 +323,99 @@ export class BoardView {
     ctx.strokeStyle = "#557564";
     ctx.lineWidth = .02;
     ctx.strokeRect(.12, .10, 9.13, 9.98);
+    const flipped = Boolean(this.frame.flipped);
+    const mirrorX = this.isMirrorX();
+    const chessTop = flipped ? CHESS_TOP_FLIP : TOP;
+    const riverTop = flipped ? XQ_BANK_FLIP : SHORE;
+    const riverBottom = flipped ? CHESS_TOP_FLIP : BANK;
+    const xqTop = flipped ? XQ_TOP_FLIP : BANK;
+    const xqBottom = flipped ? XQ_BANK_FLIP : BOTTOM;
     const coordinate = "#efe6d1";
-    for (let row = 0; row < 4; row++) {
-      for (let col = 0; col < 8; col++) {
-        ctx.fillStyle = (row + col) % 2 ? "#779582" : "#e7ddbc";
-        ctx.fillRect(LEFT + col, TOP + row, 1, 1);
+    for (let dispRow = 0; dispRow < 4; dispRow++) {
+      for (let dispCol = 0; dispCol < 8; dispCol++) {
+        ctx.fillStyle = (dispRow + dispCol) % 2 ? "#779582" : "#e7ddbc";
+        ctx.fillRect(LEFT + dispCol, chessTop + dispRow, 1, 1);
       }
-      this.text(8 - row, LEFT - .34, TOP + row + .5, coordinate, .20);
+      this.text(flipped ? 5 + dispRow : 8 - dispRow, LEFT - .34, chessTop + dispRow + .5, coordinate, .20);
     }
-    for (let col = 0; col < 8; col++) this.text("abcdefgh"[col], LEFT + col + .5, TOP - .25, coordinate, .20);
+    const chessFiles = mirrorX ? "hgfedcba" : "abcdefgh";
+    const chessFileY = flipped ? CHESS_BOTTOM_FLIP + .25 : TOP - .25;
+    for (let dispCol = 0; dispCol < 8; dispCol++) {
+      this.text(chessFiles[dispCol], LEFT + dispCol + .5, chessFileY, coordinate, .20);
+    }
 
     ctx.fillStyle = "#244a50";
-    ctx.fillRect(LEFT, SHORE, 8, BANK - SHORE);
-    this.line(LEFT, SHORE, RIGHT, SHORE, "#83a39d");
+    ctx.fillRect(LEFT, riverTop, 8, riverBottom - riverTop);
+    this.line(LEFT, flipped ? riverBottom : riverTop, RIGHT, flipped ? riverBottom : riverTop, "#83a39d");
     for (const offset of [.29, .58]) {
-      this.line(LEFT + .52, SHORE + offset, LEFT + 3.32, SHORE + offset, "#517c80");
-      this.line(RIGHT - 3.32, SHORE + offset, RIGHT - .52, SHORE + offset, "#517c80");
+      this.line(LEFT + .52, riverTop + offset, LEFT + 3.32, riverTop + offset, "#517c80");
+      this.line(RIGHT - 3.32, riverTop + offset, RIGHT - .52, riverTop + offset, "#517c80");
     }
-    this.text("SÔNG", WIDTH / 2, SHORE + .43, "#f4e3b7", .24);
+    this.text("SÔNG", WIDTH / 2, riverTop + .43, "#f4e3b7", .24);
     ctx.fillStyle = "#dfba8c";
-    ctx.fillRect(LEFT - .40, BANK, 8.8, 4.43);
-    for (let col = 0; col <= 8; col++) {
-      this.line(LEFT + col, BANK, LEFT + col, BOTTOM, "#785639");
-      this.text(9 - col, LEFT + col, BOTTOM + .60, coordinate, .20);
+    ctx.fillRect(LEFT - .40, flipped ? xqTop - .43 : xqTop, 8.8, 4.43);
+    const xqFileY = flipped ? xqTop - .60 : xqBottom + .60;
+    for (let dispCol = 0; dispCol <= 8; dispCol++) {
+      this.line(LEFT + dispCol, xqTop, LEFT + dispCol, xqBottom, "#785639");
+      this.text(mirrorX ? dispCol + 1 : 9 - dispCol, LEFT + dispCol, xqFileY, coordinate, .20);
     }
-    for (let row = 0; row <= 4; row++) {
-      this.line(LEFT, BANK + row, RIGHT, BANK + row, "#785639");
-      this.text(5 - row, LEFT - .53, BANK + row, coordinate, .20);
+    for (let dispRow = 0; dispRow <= 4; dispRow++) {
+      this.line(LEFT, xqTop + dispRow, RIGHT, xqTop + dispRow, "#785639");
+      this.text(flipped ? dispRow + 1 : 5 - dispRow, LEFT - .53, xqTop + dispRow, coordinate, .20);
     }
-    this.line(LEFT + 3, BANK + 2, LEFT + 5, BOTTOM, "#785639");
-    this.line(LEFT + 5, BANK + 2, LEFT + 3, BOTTOM, "#785639");
-    const {selection, palace, cells, targets, premoves, last, check, showTargets, planning} = this.frame;
+    const palaceTop = flipped ? xqTop : xqTop + 2;
+    const palaceBottom = flipped ? xqTop + 2 : xqBottom;
+    this.line(LEFT + 3, palaceTop, LEFT + 5, palaceBottom, "#785639");
+    this.line(LEFT + 5, palaceTop, LEFT + 3, palaceBottom, "#785639");
+    const {
+      selection, palace, cells, targets, premoves, last, check, showTargets, planning,
+      threatSource, threatTargets, threatCaptures,
+    } = this.frame;
     if (palace.length) {
-      const [x, y] = point(palace[0]);
-      const [farX, farY] = point(palace.at(-1));
+      const [x, y] = point(palace[0], flipped, mirrorX);
+      const [farX, farY] = point(palace.at(-1), flipped, mirrorX);
       ctx.strokeStyle = "#225679";
       ctx.lineWidth = .043;
-      ctx.strokeRect(x - .48, y - .48, farX - x + .96, farY - y + .96);
+      ctx.strokeRect(
+        Math.min(x, farX) - .48, Math.min(y, farY) - .48,
+        Math.abs(farX - x) + .96, Math.abs(farY - y) + .96,
+      );
     }
     if (last) for (const sq of last.slice(0, 2)) this.mark(sq, "#f5d695ad", "#986525");
     for (const plan of premoves) for (const sq of plan.move.slice(0, 2)) this.mark(sq, "#dec8f7b8", "#6d44a9");
     if (selection != null) this.mark(selection, planning ? "#dec8f7ad" : "#a7d6c3d4", planning ? "#6d44a9" : "#20654f");
     if (check != null) this.mark(check, "#ec8d968c", "#9b2938");
+    if (threatSource != null) this.mark(threatSource, "#ee8b7ea8", "#cf3d38", .465);
     for (const [sq, color] of this.highlights) {
       const [stroke, fill] = MARKS[color];
-      this.mark(sq, sq === selection || sq === check ? null : fill, stroke, .469);
+      this.mark(sq, sq === selection || sq === check || sq === threatSource ? null : fill, stroke, .469);
     }
     if (this.keyboard) this.mark(this.cursor, null, "#faf2b7", .493);
 
     const drag = this.gesture?.drag;
-    for (let sq = 0; sq < cells.length; sq++) if (cells[sq] && !(drag && sq === this.gesture.origin)) this.piece(cells[sq], ...point(sq));
+    for (let sq = 0; sq < cells.length; sq++) {
+      if (cells[sq] && !(drag && sq === this.gesture.origin)) this.piece(cells[sq], ...point(sq, flipped, mirrorX));
+    }
     if (showTargets) for (const sq of targets) {
-      const [x, y] = point(sq);
+      const [x, y] = point(sq, flipped, mirrorX);
       if (planning) {
         ctx.setLineDash([.07, .06]);
         this.disc(x, y, .41, null, "#6d44a9", .05);
         ctx.setLineDash([]);
       } else if (cells[sq]) this.disc(x, y, .454, null, "#a02f41", .07);
       else this.disc(x, y, .115, "#1a765d", "#ebf5e4", .026);
+    }
+    if (threatTargets?.size) for (const sq of threatTargets) {
+      const [x, y] = point(sq, flipped, mirrorX);
+      if (threatCaptures?.has(sq)) {
+        this.disc(x, y, .46, null, "#fff4e6", .08);
+        this.disc(x, y, .46, null, "#cf322d", .05);
+      } else {
+        ctx.setLineDash([.07, .055]);
+        this.disc(x, y, .31, null, "#d4453a", .034);
+        ctx.setLineDash([]);
+        this.disc(x, y, .115, "#d4453a", "#fff4e6", .024);
+      }
     }
     for (const [key, color] of this.arrows) {
       const [src, dst] = key.split("/").map(Number);

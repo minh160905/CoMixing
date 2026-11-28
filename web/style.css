@@ -97,6 +97,10 @@ p { margin: 0; }
   padding: .62rem;
   background: #192923;
 }
+.playing-area.flipped #seat-east { order: 1; }
+.playing-area.flipped .board-wrap { order: 2; }
+.playing-area.flipped #seat-west { order: 3; }
+.playing-area.flipped .legend { order: 4; }
 .seat {
   display: flex;
   align-items: center;
@@ -156,6 +160,9 @@ p { margin: 0; }
 .settings { padding: .65rem .72rem; }
 fieldset { padding: 0; margin: 0 0 .52rem; border: 0; min-width: 0; }
 fieldset:last-child, #bot-settings:not([hidden]) fieldset:last-child { margin-bottom: 0; }
+.color-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: .52rem; }
+.color-grid fieldset { margin-bottom: 0; }
+.color-grid:last-child { margin-bottom: 0; }
 #bot-settings { margin-top: .52rem; }
 legend { padding: 0 0 .32rem; color: var(--muted); font-size: .875rem; font-weight: 700; }
 .segmented { display: flex; gap: .38rem; }

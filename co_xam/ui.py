@@ -12,7 +12,9 @@ from .board import (
     CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS,
     WK, Board, coordinates,
 )
-from .board_view import BoardView, STAGE, LEGAL, CAPTURE, LAST_MOVE, PREMOVE
+from .board_view import (
+    BoardView, STAGE, LEGAL, CAPTURE, LAST_MOVE, PREMOVE, valid_piece_colors,
+)
 from .premove import MAX_PREMOVES, PremoveQueue, possible_moves
 from .search import EXPERT_SECONDS, Search
 
@@ -102,7 +104,7 @@ class GameApp:
             XIANGQI: self._build_seat(stage, XIANGQI, 2),
         }
         self.view = BoardView(stage, self.pick, self.grab, self._cancel_premove_at,
-                              self.ui_font, self.chinese_font)
+                              self.ui_font, self.chinese_font, self._inspect_threat)
         self.view.grid(row=1, column=0, sticky="nsew")
         self._build_legend(stage)
 
@@ -115,6 +117,9 @@ class GameApp:
         self.saved_games = {}
         self.vs_bot = False
         self.human = CHESS
+        self.chess_color = "white"
+        self.xiangqi_color = "red"
+        self.threat_source = None
         self.think_time = 3
         self.job = None
         self.rules_window = None
@@ -199,15 +204,16 @@ class GameApp:
         bar = tk.Frame(stage, bg=PAPER, padx=9, pady=3)
         bar.grid(row=row, column=0, sticky="ew", padx=10, pady=(6, 0))
         west = side == CHESS
-        mark, family, color = ("♚", self.chess_font, WEST) if west else ("帥", self.chinese_font, EAST)
+        mark, family, color = ("♔", self.chess_font, WEST) if west else ("帥", self.chinese_font, EAST)
         accent = tk.Frame(bar, bg=BORDER, width=3)
         accent.pack(side="left", fill="y", padx=(0, 7))
-        tk.Label(bar, text=mark, bg=PAPER, fg=color, font=(family, 11, "bold")).pack(side="left")
+        mark_label = tk.Label(bar, text=mark, bg=PAPER, fg=color, font=(family, 11, "bold"))
+        mark_label.pack(side="left")
         name = self._label(bar, SIDE_NAMES[side], 9, fg=color, bold=True)
         name.pack(side="left", padx=(5, 0))
         status = self._label(bar, "", 9, fg=color, bold=True)
         status.pack(side="right")
-        return name, status, accent
+        return bar, mark_label, name, status, accent
 
     def _build_legend(self, stage):
         legend = tk.Frame(stage, bg=STAGE, pady=5)
@@ -260,6 +266,20 @@ class GameApp:
         )
         self.mode_buttons = self._options(
             settings, "Chế độ chơi", (("Hai người", False), ("Đấu máy", True)), self.set_mode, margin=7
+        )
+        color_row = tk.Frame(settings, bg=PAPER)
+        color_row.pack(fill="x", pady=(7, 0))
+        color_row.grid_columnconfigure(0, weight=1, uniform="color_group")
+        color_row.grid_columnconfigure(1, weight=1, uniform="color_group")
+        chess_color_box = tk.Frame(color_row, bg=PAPER)
+        chess_color_box.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        xiangqi_color_box = tk.Frame(color_row, bg=PAPER)
+        xiangqi_color_box.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        self.chess_color_buttons = self._options(
+            chess_color_box, "Màu cờ vua", (("Trắng", "white"), ("Đen", "black")), self.set_chess_color
+        )
+        self.xiangqi_color_buttons = self._options(
+            xiangqi_color_box, "Màu cờ tướng", (("Đỏ", "red"), ("Đen", "black")), self.set_xiangqi_color
         )
         self.bot_panel = tk.Frame(settings, bg=PAPER)
         self.side_buttons = self._options(
@@ -379,6 +399,21 @@ class GameApp:
         self._refresh()
         self._maybe_start_bot()
 
+    def _board_flipped(self):
+        return self.vs_bot and self.human == CHESS
+
+    def set_chess_color(self, color):
+        if color == self.chess_color or not valid_piece_colors(color, self.xiangqi_color):
+            return
+        self.chess_color = color
+        self._refresh()
+
+    def set_xiangqi_color(self, color):
+        if color == self.xiangqi_color or not valid_piece_colors(self.chess_color, color):
+            return
+        self.xiangqi_color = color
+        self._refresh()
+
     def new_game(self):
         self._cancel_bot()
         self.board = Board(balanced=self.balanced)
@@ -408,6 +443,15 @@ class GameApp:
     def _refresh(self):
         self._set_active(self.ruleset_buttons, self.balanced)
         self._set_active(self.mode_buttons, self.vs_bot)
+        self._set_active(self.chess_color_buttons, self.chess_color)
+        self._set_active(self.xiangqi_color_buttons, self.xiangqi_color)
+        for button, disabled in (
+            (self.chess_color_buttons["black"], self.xiangqi_color == "black"),
+            (self.xiangqi_color_buttons["black"], self.chess_color == "black"),
+        ):
+            button.configure(state="disabled" if disabled else "normal")
+            if disabled:
+                button.configure(cursor="", bg=button.normal_color)
         self._set_active(self.side_buttons, self.human)
         self._set_active(self.time_buttons, self.think_time)
         if self.vs_bot:
@@ -415,7 +459,14 @@ class GameApp:
         else:
             self.bot_panel.pack_forget()
 
+        flipped = self._board_flipped()
         side = self.board.turn
+        opponent = self._opponent_side()
+        if self.threat_source is not None:
+            inspected = self.board.cells[self.threat_source]
+            if not inspected or SIDE[inspected] != opponent:
+                self.threat_source = None
+        threat_targets = self.board.threat_targets(self.threat_source) if self.threat_source is not None else frozenset()
         can_play = self.outcome is None and (not self.vs_bot or side == self.human)
         self.planning = (
             self.outcome is None and self.vs_bot and side != self.human
@@ -438,7 +489,12 @@ class GameApp:
         else:
             candidates = frozenset()
         targets = frozenset(move.dst for move in self.input_moves)
-        for seat_side, (name, status, accent) in self.seats.items():
+        chess_mark = "♔" if self.chess_color == "white" else "♚"
+        xiangqi_mark = "將" if self.xiangqi_color == "black" else "帥"
+        for seat_side, (bar, mark_label, name, status, accent) in self.seats.items():
+            seat_row = (2 if seat_side == CHESS else 0) if flipped else (0 if seat_side == CHESS else 2)
+            bar.grid(row=seat_row, column=0, sticky="ew", padx=10, pady=(6, 0))
+            mark_label.configure(text=chess_mark if seat_side == CHESS else xiangqi_mark)
             text = SIDE_NAMES[seat_side]
             if self.vs_bot:
                 role = "Bạn" if seat_side == self.human else "Máy"
@@ -462,6 +518,11 @@ class GameApp:
                 context = "LƯỢT CỦA BẠN" if can_play else "LƯỢT CỦA BOT"
             if self.job is not None:
                 detail = self._thinking_message()
+            elif self.threat_source is not None and self.selection is None:
+                piece = self.board.cells[self.threat_source]
+                hits = sum(1 for sq in threat_targets if self.board.cells[sq])
+                hit_note = f" ({hits} quân bị đe dọa)" if hits else ""
+                detail = f"Đe dọa: {PIECE_NAMES[piece]} · {coordinates(self.threat_source)} · {len(threat_targets)} ô{hit_note}"
             elif self.premove_note and self.selection is None:
                 detail = self.premove_note
             elif self.selection is not None:
@@ -478,11 +539,15 @@ class GameApp:
         if active_side == CHESS:
             mark, mark_font, side_color, tint = "", self.chess_font, WEST, WEST_TINT
         elif active_side == XIANGQI:
-            mark, mark_font, side_color, tint = "帥", self.chinese_font, EAST, EAST_TINT
+            mark, mark_font, side_color, tint = xiangqi_mark, self.chinese_font, EAST, EAST_TINT
         else:
             mark, mark_font, side_color, tint = "=", self.ui_font, INK, SOFT
         self.turn_icon.itemconfigure(self.icon_tile, fill=tint)
-        self.turn_icon.itemconfigure(self.icon_piece, state="normal" if active_side == CHESS else "hidden")
+        self.turn_icon.itemconfigure(
+            self.icon_piece,
+            image=self.view.western_image(WK, 36, self.chess_color),
+            state="normal" if active_side == CHESS else "hidden",
+        )
         self.turn_icon.itemconfigure(self.icon_mark, text=mark, fill=side_color, font=(mark_font, -25, "bold"))
         self.turn_context.configure(text=context)
         self.turn_label.configure(text=title, fg=side_color)
@@ -494,6 +559,8 @@ class GameApp:
             self.board, self.selection, targets, last,
             self.board.kings[side] if self.check else None, candidates,
             projected=projected, premoves=self.premoves.moves, show_targets=self.show_legal_moves.get(),
+            flipped=flipped, chess_color=self.chess_color, xiangqi_color=self.xiangqi_color,
+            threat_source=self.threat_source, threat_targets=threat_targets,
         )
 
     def _thinking_message(self):
@@ -530,12 +597,32 @@ class GameApp:
                                   tags=(f"{SIDE[piece]}-{(index - 1) % 2}",))
         self.log.see(row)
 
+    def _opponent_side(self):
+        return 1 - self.human if self.vs_bot else 1 - self.board.turn
+
+    def _inspect_threat(self, sq):
+        piece = self.board.cells[sq]
+        if piece and SIDE[piece] == self._opponent_side():
+            self.threat_source = None if self.threat_source == sq else sq
+            self._refresh()
+            return True
+        if self.threat_source is not None:
+            self.threat_source = None
+            self._refresh()
+        return False
+
     def grab(self, sq):
         if self.input_side is not None and SIDE[self.input_cells[sq]] == self.input_side:
+            self.threat_source = None
             self.selection = sq
             self._refresh()
 
     def pick(self, sq, dragged=False):
+        if self.threat_source is not None:
+            self.threat_source = None
+            if self.input_side is None:
+                self._refresh()
+                return
         if self.input_side is None:
             return
         own_piece = sq is not None and SIDE[self.input_cells[sq]] == self.input_side
@@ -560,6 +647,7 @@ class GameApp:
         self.premoves.clear()
         self.premove_note = ""
         self.selection = None
+        self.threat_source = None
         if self.promotion_window is not None and self.promotion_window.winfo_exists():
             self.promotion_window.destroy()
         self.view.cancel_gestures()
@@ -692,7 +780,7 @@ class GameApp:
             piece = move.promotion
             button = self._button(row, PIECE_NAMES[piece],
                                   lambda choice=move: promote(choice))
-            button.configure(image=self.view.western_image(piece, 44), compound="top", pady=8)
+            button.configure(image=self.view.western_image(piece, 44, self.chess_color), compound="top", pady=8)
             row.grid_columnconfigure(index, weight=1, uniform="promotion")
             button.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 5, 0))
         self._button(content, "Hủy", dialog.destroy).pack(anchor="e")
@@ -724,8 +812,8 @@ class GameApp:
                 font=(self.ui_font, 10), anchor="w",
             ).pack(fill="x", pady=2)
         tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=9)
-        self._label(body, "Nhấp hoặc kéo thả để đi quân. Chuột phải tô điểm. "
-                    "Giữ chuột phải và kéo để vẽ mũi tên. Nhấp trái để xóa dấu.",
+        self._label(body, "Nhấp hoặc kéo thả để đi quân. Chuột phải vào quân đối thủ để xem ô bị đe dọa. "
+                    "Chuột phải ô trống để tô điểm, giữ chuột phải và kéo để vẽ mũi tên. Nhấp trái để xóa dấu.",
                     9, fg=MUTED, wrap=335).pack(anchor="w")
         self._button(body, "Đóng", dialog.destroy, kind="primary").pack(anchor="e", pady=(11, 0))
         self._show_dialog(dialog)

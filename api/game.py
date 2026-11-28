@@ -111,10 +111,16 @@ def game_state(request):
         legal = board.legal_moves()
         outcome = board.outcome(legal)
 
+    threats = {
+        str(sq): sorted(board.threat_targets(sq))
+        for side_positions in board.positions
+        for sq in side_positions
+    }
     return {
         "rules": rules, "cells": board.cells, "turn": board.turn, "rights": board.rights,
         "check": board.kings[board.turn] if board.in_check() else None,
         "legal": [move_key(move) for move in legal] if outcome is None else [],
+        "threats": threats,
         "outcome": None if outcome is None else {"winner": outcome.winner, "reason": REASONS[outcome.reason]},
         "records": records, "bot": bot,
     }
