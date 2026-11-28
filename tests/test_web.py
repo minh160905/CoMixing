@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from api.game import client_config, game_state
 from co_xam.board import Board, WK, WESTERN_PALACE, square
-from co_xam.search import SearchResult
+from co_xam.search import EXPERT_SECONDS, SearchResult
 
 
 class WebGame(TestCase):
@@ -19,12 +19,14 @@ class WebGame(TestCase):
 
     def test_bot_reports_the_move_from_the_shared_engine(self):
         move = Board().legal_moves()[0]
-        with patch("api.game.Search") as search:
-            search.return_value.analyze.return_value = SearchResult(move, 0, 3, 52, 1.0)
-            result = game_state({"action": "bot", "seconds": 1})
-        self.assertEqual(result["records"][0]["move"], [move.src, move.dst, move.promotion])
-        self.assertEqual(result["bot"], {"depth": 3, "nodes": 52})
-        self.assertEqual(search.return_value.analyze.call_args.args[1], 1)
+        for seconds, expert in ((1, False), (EXPERT_SECONDS, True)):
+            with self.subTest(seconds=seconds), patch("api.game.Search") as search:
+                search.return_value.analyze.return_value = SearchResult(move, 0, 3, 52, 1.0)
+                result = game_state({"action": "bot", "seconds": seconds})
+                self.assertEqual(result["records"][0]["move"], [move.src, move.dst, move.promotion])
+                self.assertEqual(result["bot"], {"depth": 3, "nodes": 52})
+                self.assertEqual(search.call_args.kwargs["expert"], expert)
+                self.assertEqual(search.return_value.analyze.call_args.args[1], seconds)
 
     def test_invalid_request_or_move_is_rejected(self):
         for request in ([], {"rules": "unknown"}, {"history": [[26, 500, 0]]},

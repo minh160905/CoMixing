@@ -14,7 +14,7 @@ from .board import (
 )
 from .board_view import BoardView, STAGE, LEGAL, CAPTURE, LAST_MOVE, PREMOVE
 from .premove import MAX_PREMOVES, PremoveQueue, possible_moves
-from .search import Search
+from .search import EXPERT_SECONDS, Search
 
 APP_BG = "#101917"
 PAPER = "#1c2b27"
@@ -266,7 +266,9 @@ class GameApp:
             self.bot_panel, "Bạn cầm", (("Cờ vua", CHESS), ("Cờ tướng", XIANGQI)), self.set_human, margin=7
         )
         self.time_buttons = self._options(
-            self.bot_panel, "Thời gian bot", (("1 giây", 1), ("3 giây", 3), ("8 giây", 8)), self.set_time, margin=7
+            self.bot_panel, "Thời gian bot",
+            (("1 giây", 1), ("3 giây", 3), ("8 giây", 8), (f"Chuyên gia · {EXPERT_SECONDS} giây", EXPERT_SECONDS)),
+            self.set_time, margin=7, columns=2,
         )
 
         history = self._card(panel, padx=10)
@@ -309,15 +311,19 @@ class GameApp:
         else:
             self.log_scroll.grid()
 
-    def _options(self, parent, title, entries, setter, *, margin=0):
+    def _options(self, parent, title, entries, setter, *, margin=0, columns=None):
         self._label(parent, title, 9, bold=True).pack(anchor="w", pady=(margin, 3))
         row = tk.Frame(parent, bg=PAPER)
         row.pack(fill="x")
         buttons = {}
+        columns = len(entries) if columns is None else columns
+        for column in range(columns):
+            row.grid_columnconfigure(column, weight=1, uniform="option")
         for index, (text, value) in enumerate(entries):
-            row.grid_columnconfigure(index, weight=1, uniform="option")
+            grid_row, column = divmod(index, columns)
             button = self._button(row, text, lambda setting=value: setter(setting), compact=True)
-            button.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 4, 0))
+            button.grid(row=grid_row, column=column, sticky="ew",
+                        padx=(4 if column else 0, 0), pady=(4 if grid_row else 0, 0))
             buttons[value] = button
         return buttons
 
@@ -367,6 +373,9 @@ class GameApp:
             return
         self._cancel_bot()
         self.think_time = seconds
+        expert = seconds == EXPERT_SECONDS
+        if self.engine.expert != expert:
+            self.engine = Search(expert=expert)
         self._refresh()
         self._maybe_start_bot()
 
@@ -641,7 +650,7 @@ class GameApp:
         if self.job is not None:
             self.job[0].set()
             self.job = None
-            self.engine = Search()
+            self.engine = Search(expert=self.think_time == EXPERT_SECONDS)
 
     def _dialog(self, title):
         dialog = tk.Toplevel(self.root, bg=PAPER)

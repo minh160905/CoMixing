@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from time import monotonic
 
-from .board import Move, SIZE
+from .board import CANNON_UNLOCK_PLY, XIANGQI, Move, SIZE, SQUARE_BITS
 from .evaluation import MATERIAL, evaluate
 
 MATE = 100_000
@@ -11,6 +11,8 @@ MATE_THRESHOLD = MATE - 500
 INF = MATE + 1
 EXACT, LOWER, UPPER = range(3)
 MAX_Q_PLY = 12
+EXPERT_SECONDS = 12
+_UNVERIFIED_QUIET = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +41,8 @@ class SearchStopped(Exception):
 
 
 class Search:
-    def __init__(self, table_bits=17):
+    def __init__(self, table_bits=17, *, expert=False):
+        self.expert = expert
         self.table = [None] * (1 << table_bits)
         self.table_mask = len(self.table) - 1
         self.generation = 0
@@ -63,7 +66,7 @@ class Search:
         for depth in range(1, max_depth + 1):
             try:
                 self._check_time()
-                value = self._negamax(board, depth, -INF, INF, 0)
+                value = self._search_root(board, depth, score)
             except SearchStopped:
                 break
             best = self.root_best or best
@@ -71,6 +74,18 @@ class Search:
             if abs(score) >= MATE_THRESHOLD:
                 break
         return SearchResult(best, score, completed, self.nodes, monotonic() - start)
+
+    def _search_root(self, board, depth, previous):
+        if not self.expert or depth < 3:
+            return self._negamax(board, depth, -INF, INF, 0)
+        margin = 48
+        while True:
+            self._check_time()
+            alpha, beta = max(-INF, previous - margin), min(INF, previous + margin)
+            score = self._negamax(board, depth, alpha, beta, 0)
+            if alpha < score < beta:
+                return score
+            margin *= 2
 
     def _check_time(self):
         if monotonic() >= self.deadline or (self.cancel is not None and self.cancel.is_set()):
@@ -107,18 +122,29 @@ class Search:
         ordered = []
         killers = self.killers[ply]
         history = self.history[board.turn]
+        direct, blockers = None, 0
+        if (self.expert and len(quiet) >= 8
+                and not (board.turn == XIANGQI and board.ply + 1 == CANNON_UNLOCK_PLY)
+                and not board.in_check(1 - board.turn)):
+            direct, blockers = board.check_candidates()
         for index, move in enumerate(quiet):
             if index & 15 == 15:
                 self._check_time()
-            undo = board.push_legal(move)
-            if undo is None:
-                continue
-            # The move can also uncover a check from a different piece.
-            checking = board.in_check()
-            board.pop(move, undo)
+            if (direct is not None and move.rook_from < 0
+                    and not (direct[board.cells[move.src]] & SQUARE_BITS[move.dst])
+                    and not (blockers & (SQUARE_BITS[move.src] | SQUARE_BITS[move.dst]))):
+                # Validate legality only if this quiet move survives ordering.
+                checking = _UNVERIFIED_QUIET
+            else:
+                undo = board.push_legal(move)
+                if undo is None:
+                    continue
+                checking = board.in_check()
+                board.pop(move, undo)
             priority = 10_000 if move == killers[0] else 9_000 if move == killers[1] else 0
             priority += min(8_000, history[move.src * SIZE + move.dst])
-            priority += 20_000 * checking
+            if checking is True:
+                priority += 20_000
             ordered.append((priority, move, checking))
         ordered.sort(key=lambda pair: pair[0], reverse=True)
         for _, move, gives_check in ordered:
@@ -126,7 +152,9 @@ class Search:
 
     @staticmethod
     def _play(board, move, gives_check):
-        return board.push_legal(move) if gives_check is None else board.push(move)
+        if gives_check is None or gives_check is _UNVERIFIED_QUIET:
+            return board.push_legal(move)
+        return board.push(move)
 
     def _entry(self, board):
         entry = self.table[board.key & self.table_mask]
@@ -178,7 +206,8 @@ class Search:
                 continue
             legal_count += 1
             try:
-                if reduce_late and legal_count > 7 and gives_check is False and abs(alpha) < MATE_THRESHOLD:
+                quiet_noncheck = gives_check is False or gives_check is _UNVERIFIED_QUIET
+                if reduce_late and legal_count > 7 and quiet_noncheck and abs(alpha) < MATE_THRESHOLD:
                     # Verify any late quiet move that improves the reduced search.
                     score = -self._negamax(board, depth - 2, -alpha - 1, -alpha, ply + 1)
                     if score > alpha:

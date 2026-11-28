@@ -60,7 +60,7 @@ Import repo vào Vercel với **Root Directory** là thư mục gốc và **Fram
 
 Bot dùng mảng bàn cờ một chiều, các tuyến di chuyển tính sẵn và hoàn tác gia tăng. Negamax dùng Alpha–Beta, Iterative Deepening và Quiescence Search. Bảng chuyển vị dùng khóa Zobrist. Bot ưu tiên nước trong bảng, nước ăn theo MVV–LVA, phong cấp và chiếu. Hàm lượng giá pha trộn điểm vật chất và ba bộ bảng điểm vị trí cho khai cuộc, trung cuộc và tàn cuộc.
 
-Có thể chọn ngân sách 1, 3 hoặc 8 giây cho mỗi nước. Khi hết giờ, bot dùng kết quả từ độ sâu đã tìm xong gần nhất.
+Bot có các mức 1, 3, 8 giây và **Chuyên gia · 12 giây** trên desktop và web. Mức Chuyên gia thử một cửa sổ Alpha–Beta hẹp quanh điểm của lượt tìm trước, rồi mở rộng khi cần. Nó lọc nhanh các nước có thể chiếu trước khi xét tính hợp lệ. Khi hết giờ, bot dùng nước đi tốt nhất từ độ sâu đã tìm xong gần nhất.
 
 ```console
 python -m unittest -v

@@ -8,6 +8,7 @@ EMPTY, WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP = range(14)
 SIDE = (-1,) + (CHESS,) * 6 + (XIANGQI,) * 7
 FILES, RANKS = 9, 9
 SIZE = FILES * RANKS
+SQUARE_BITS = tuple(1 << sq for sq in range(SIZE))
 RIVER = 4
 PALACE_CENTER = 7 * FILES + 4
 WESTERN_PALACE = frozenset(row * FILES + col for row in range(3) for col in range(2, 6))
@@ -138,7 +139,7 @@ def _build_geometry():
                     continue
                 limit = 2 if row >= RIVER and piece in (WQ, WB) else len(ray)
                 RAYS[piece][src] += (tuple(ray[:limit]),)
-            path = ()
+            path = 0
             for index, group in enumerate(ray):
                 western_mask = 1 << WR if straight else 0
                 if row < RIVER or index < 2:
@@ -148,10 +149,11 @@ def _build_geometry():
                         RAY_ATTACKS[CHESS][dst].append((src, western_mask, path))
                     if straight:
                         RAY_ATTACKS[XIANGQI][dst].append((src, (1 << XR) | (1 << XC), path))
-                path += group
+                for dst in group:
+                    path |= SQUARE_BITS[dst]
     for side in range(2):
         for routes in RAY_ATTACKS[side]:
-            routes.sort(key=lambda route: len(route[2]))
+            routes.sort(key=lambda route: route[2].bit_count())
 
 
 _build_geometry()
@@ -169,6 +171,23 @@ _CASTLE_KEYS = tuple(_rng.getrandbits(64) for _ in range(4))
 _OPENING_KEYS = tuple(_rng.getrandbits(64) for _ in range(CANNON_UNLOCK_PLY + 1))
 _BALANCED_KEY = _rng.getrandbits(64)
 _PIECE_BITS = tuple(1 << piece if piece else 0 for piece in range(len(SIDE)))
+
+
+def _direct_attack_squares():
+    squares = [[[0] * len(SIDE) for _ in range(SIZE)] for _ in range(2)]
+    for side, targets in enumerate(squares):
+        sliders = (WQ, WR, WB) if side == CHESS else (XR, XC)
+        for target, pieces in enumerate(targets):
+            for src, piece, _ in JUMP_ATTACKS[side][target]:
+                pieces[piece] |= SQUARE_BITS[src]
+            for src, mask, _ in RAY_ATTACKS[side][target]:
+                for piece in sliders:
+                    if mask & _PIECE_BITS[piece]:
+                        pieces[piece] |= SQUARE_BITS[src]
+    return squares
+
+
+_DIRECT_ATTACK_SQUARES = _direct_attack_squares()
 _HISTORY_SALT = 0x9E3779B97F4A7C15
 _MASK_64 = (1 << 64) - 1
 
@@ -196,6 +215,7 @@ class Undo:
     key: int
     history_key: int
     previous_counts: dict | None
+    occupied: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +230,7 @@ class Board:
     def __init__(self, pieces=None, turn=XIANGQI, rights=None, ply=0, *, balanced=False):
         starting = pieces is None
         self.cells = [EMPTY] * SIZE
+        self.occupied = 0
         self.positions = [set(), set()]
         self.kings = [-1, -1]
         self.turn = turn
@@ -234,6 +255,8 @@ class Board:
             self.key ^= _SIDE_KEY
         for sq, piece in pieces.items():
             self.cells[sq] = piece
+            if piece:
+                self.occupied |= SQUARE_BITS[sq]
             self.positions[SIDE[piece]].add(sq)
             self.key ^= _PIECE_KEYS[piece][sq]
             if piece in (WK, XK):
@@ -244,6 +267,7 @@ class Board:
     def copy(self):
         snapshot = object.__new__(Board)
         snapshot.cells = self.cells.copy()
+        snapshot.occupied = self.occupied
         snapshot.positions = [p.copy() for p in self.positions]
         snapshot.kings = self.kings.copy()
         snapshot.turn = self.turn
@@ -274,7 +298,7 @@ class Board:
         return True
 
     def is_attacked(self, target, by_side):
-        cells = self.cells
+        cells, occupied = self.cells, self.occupied
         for src, piece, blocker in JUMP_ATTACKS[by_side][target]:
             if cells[src] == piece and (blocker < 0 or not cells[blocker]):
                 if self.balanced and piece == WK and (src not in WESTERN_PALACE or target not in WESTERN_PALACE):
@@ -282,7 +306,7 @@ class Board:
                 return True
         if by_side == CHESS:
             for src, mask, path in RAY_ATTACKS[CHESS][target]:
-                if mask & _PIECE_BITS[cells[src]] and not any(cells[sq] for sq in path):
+                if mask & _PIECE_BITS[cells[src]] and not (path & occupied):
                     return True
         else:
             restricted = self.ply < CANNON_UNLOCK_PLY
@@ -290,20 +314,28 @@ class Board:
                 piece = cells[src]
                 if not (mask & _PIECE_BITS[piece]):
                     continue
+                screens = path & occupied
                 if piece == XR:
-                    if not any(cells[sq] for sq in path):
+                    if not screens:
                         return True
-                else:
-                    screen = EMPTY
-                    for sq in path:
-                        if cells[sq]:
-                            if screen:
-                                break
-                            screen = cells[sq]
-                    else:
-                        if screen and (not restricted or SIDE[screen] == XIANGQI):
-                            return True
+                elif screens and not (screens & (screens - 1)):
+                    if not restricted or SIDE[cells[screens.bit_length() - 1]] == XIANGQI:
+                        return True
         return False
+
+    def check_candidates(self):
+        """Return masks for direct and discovered checks by the side to move."""
+        side = self.turn
+        target = self.kings[1 - side]
+        cells = self.cells
+        blockers = 0
+        for src, piece, blocker in JUMP_ATTACKS[side][target]:
+            if blocker >= 0 and cells[src] == piece:
+                blockers |= SQUARE_BITS[blocker]
+        for src, mask, path in RAY_ATTACKS[side][target]:
+            if mask & _PIECE_BITS[cells[src]]:
+                blockers |= path
+        return _DIRECT_ATTACK_SQUARES[side][target], blockers
 
     def in_check(self, side=None):
         side = self.turn if side is None else side
@@ -389,9 +421,10 @@ class Board:
         side = self.turn
         quiet = not capture and piece not in (WP, XP)
         reversible = quiet or (not capture and not move.promotion and src // FILES == dst // FILES)
-        undo = Undo(piece, capture, self.rights, self.quiet, self.key, self.history_key, None)
+        undo = Undo(piece, capture, self.rights, self.quiet, self.key, self.history_key, None, self.occupied)
         placed = move.promotion or piece
         cells[src], cells[dst] = EMPTY, placed
+        self.occupied = (self.occupied ^ SQUARE_BITS[src]) | SQUARE_BITS[dst]
         self.positions[side].remove(src)
         self.positions[side].add(dst)
         key = self.key ^ _SIDE_KEY ^ _PIECE_KEYS[piece][src] ^ _PIECE_KEYS[placed][dst]
@@ -409,6 +442,7 @@ class Board:
         if move.rook_from >= 0:
             rook_from, rook_to = move.rook_from, move.rook_to
             cells[rook_from], cells[rook_to] = EMPTY, WR
+            self.occupied ^= SQUARE_BITS[rook_from] | SQUARE_BITS[rook_to]
             self.positions[side].remove(rook_from)
             self.positions[side].add(rook_to)
             key ^= _PIECE_KEYS[WR][rook_from] ^ _PIECE_KEYS[WR][rook_to]
@@ -465,6 +499,7 @@ class Board:
             self.positions[side].add(move.rook_from)
         self.turn, self.rights, self.quiet = side, undo.rights, undo.quiet
         self.key, self.history_key = undo.key, undo.history_key
+        self.occupied = undo.occupied
         self.ply -= 1
 
     def legal_moves(self):

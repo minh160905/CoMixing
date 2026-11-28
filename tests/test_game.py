@@ -25,7 +25,7 @@ def signature(board):
     return (
         board.cells.copy(), [positions.copy() for positions in board.positions],
         board.kings.copy(), board.turn, board.rights, board.ply, board.quiet,
-        board.key, board.history_key, board.counts.copy(),
+        board.key, board.history_key, board.counts.copy(), board.occupied,
     )
 
 

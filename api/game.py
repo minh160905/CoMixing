@@ -9,11 +9,11 @@ from co_xam.board import (
     CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS, coordinates,
 )
 from co_xam.premove import _CASTLES, MAX_PREMOVES, possible_moves
-from co_xam.search import Search
+from co_xam.search import EXPERT_SECONDS, Search
 
 MAX_BODY = 96 * 1024
 MAX_HISTORY = 4096
-TIME_OPTIONS = (1, 3, 8)
+TIME_OPTIONS = (1, 3, 8, EXPERT_SECONDS)
 REASONS = {
     CHECKMATE: "Chiếu hết",
     STALEMATE: "Hết nước hợp lệ",
@@ -81,7 +81,7 @@ def game_state(request):
         raise ValueError("Lịch sử ván cờ không hợp lệ.")
     seconds = request.get("seconds", 3)
     if action == "bot" and (type(seconds) is not int or seconds not in TIME_OPTIONS):
-        raise ValueError("Thời gian bot phải là 1, 3 hoặc 8 giây.")
+        raise ValueError(f"Thời gian bot phải là 1, 3, 8 hoặc {EXPERT_SECONDS} giây.")
 
     board = Board(balanced=rules == "balanced")
     records = []
@@ -100,7 +100,9 @@ def game_state(request):
         if len(records) >= MAX_HISTORY:
             raise ValueError("Ván cờ đã đạt giới hạn lịch sử.")
         if action == "bot":
-            result = Search(table_bits=15).analyze(board, seconds)
+            expert = seconds == EXPERT_SECONDS
+            engine = Search(table_bits=17 if expert else 15, expert=expert)
+            result = engine.analyze(board, seconds)
             move = result.move
             bot = {"depth": result.depth, "nodes": result.nodes}
         else:
