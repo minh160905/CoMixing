@@ -7,14 +7,15 @@ from co_xam.board import (
     WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP,
     Board, Move, Outcome, PROMOTIONS, square,
 )
+from co_xam.evaluation import BALANCED_MATERIAL, MATERIAL, evaluate
 from co_xam.search import MATE, Search
 
 
-def position(*pieces, turn=CHESS, ply=6, rights=0):
-    setup = {square(0, 0): WK, square(8, 4): XK}
+def position(*pieces, turn=CHESS, ply=6, rights=0, balanced=False):
+    setup = {square(0, 2 if balanced else 0): WK, square(8, 4): XK}
     for row, col, piece in pieces:
         setup[square(row, col)] = piece
-    return Board(setup, turn=turn, rights=rights, ply=ply)
+    return Board(setup, turn=turn, rights=rights, ply=ply, balanced=balanced)
 
 
 def moves_from(board, row, col):
@@ -97,6 +98,72 @@ class BoardRules(unittest.TestCase):
         self.assertEqual(balanced.cells[3], WR)
         balanced.pop(long_castle, undo)
         self.assertEqual(signature(balanced), before)
+
+    def test_balanced_elephant_crosses_both_ways_through_a_blocked_eye(self):
+        bank = square(3, 2)
+        piece = (5, 4, XE)
+        blockers = ((4, 3, WP), (6, 5, XP), (3, 2, WN))
+        classic = position(piece, *blockers, turn=XIANGQI)
+        balanced = position(piece, *blockers, turn=XIANGQI, balanced=True)
+        self.assertNotIn(bank, moves_from(classic, 5, 4))
+        self.assertFalse(classic.is_attacked(bank, XIANGQI))
+        self.assertTrue({bank, square(3, 1), square(7, 6)} <= moves_from(balanced, 5, 4))
+        self.assertIn(Move(square(5, 4), bank), balanced.pseudo_moves(tactical_only=True))
+        self.assertIn(bank, balanced.threat_targets(square(5, 4)))
+        self.assertTrue(balanced.is_attacked(bank, XIANGQI))
+        return_trip = position((2, 2, XE), (3, 3, WP), turn=XIANGQI, balanced=True)
+        self.assertTrue({square(4, 4), square(4, 5)} <= moves_from(return_trip, 2, 2))
+
+    def test_balanced_advisor_orthogonal_steps_and_palace_diagonals(self):
+        inside = position((6, 3, XA), turn=XIANGQI, balanced=True)
+        self.assertEqual(moves_from(inside, 6, 3), {
+            square(5, 3), square(6, 2), square(6, 4), square(7, 3), square(7, 4),
+        })
+        outside = position((5, 3, XA), turn=XIANGQI, balanced=True)
+        self.assertEqual(moves_from(outside, 5, 3), {
+            square(4, 3), square(5, 2), square(5, 4), square(6, 3),
+        })
+        bank = position((4, 4, XA), turn=XIANGQI, balanced=True)
+        self.assertTrue({square(3, 3), square(3, 4)} <= moves_from(bank, 4, 4))
+
+    def test_balanced_western_rook_is_short_range_on_xiangqi_half(self):
+        classic = position((5, 4, WR))
+        balanced = position((5, 4, WR), balanced=True)
+        two_steps = square(5, 6)
+        three_steps = square(5, 7)
+        self.assertIn(three_steps, moves_from(classic, 5, 4))
+        self.assertTrue(classic.is_attacked(three_steps, CHESS))
+        self.assertIn(two_steps, moves_from(balanced, 5, 4))
+        self.assertNotIn(three_steps, moves_from(balanced, 5, 4))
+        self.assertIn(two_steps, balanced.threat_targets(square(5, 4)))
+        self.assertFalse(balanced.is_attacked(three_steps, CHESS))
+        home = position((2, 0, WR), balanced=True)
+        self.assertIn(square(2, 5), moves_from(home, 2, 0))
+
+    def test_balanced_western_pawn_reaches_last_rank_and_moves_sideways(self):
+        source = square(7, 2)
+        last_rank = square(8, 2)
+        victim = square(8, 3)
+        board = position((7, 2, WP), (8, 3, XP), balanced=True)
+        arrival = Move(source, last_rank)
+        capture_arrival = Move(source, victim)
+        self.assertEqual({move for move in board.legal_moves() if move.src == source},
+                         {arrival, capture_arrival})
+        self.assertIn(capture_arrival, board.pseudo_moves(tactical_only=True))
+        self.assertNotIn(arrival, board.pseudo_moves(tactical_only=True))
+        self.assertIsNone(board.push_legal(Move(source, last_rank, WQ)))
+        undo = board.push_legal(arrival)
+        self.assertEqual(board.cells[last_rank], WP)
+        board.pop(arrival, undo)
+        self.assertEqual(board.cells[source], WP)
+
+        final = position((8, 2, WP), (8, 3, XP), (7, 2, XP), balanced=True)
+        empty_neighbor = square(8, 1)
+        self.assertEqual(moves_from(final, 8, 2), {empty_neighbor, victim})
+        self.assertEqual({move.dst for move in final.pseudo_moves(tactical_only=True) if move.src == last_rank},
+                         {victim})
+        self.assertEqual(final.threat_targets(last_rank), {empty_neighbor, victim})
+        self.assertTrue(final.is_attacked(victim, CHESS))
 
     def test_western_pawn_crosses_only_to_empty_points_beside_its_file(self):
         pawn = square(3, 4)  # e5
@@ -284,6 +351,17 @@ class BoardRules(unittest.TestCase):
 
 
 class BotSearch(unittest.TestCase):
+    def test_material_used_by_evaluation_and_capture_order_matches_ruleset(self):
+        self.assertEqual(MATERIAL, (0, 20_000, 860, 480, 290, 235, 105, 20_000, 580, 285, 255, 85, 85, 65))
+        self.assertEqual(BALANCED_MATERIAL, (0, 20_000, 860, 335, 155, 335, 100, 20_000, 640, 125, 190, 90, 170, 65))
+        pieces = {square(0, 2): WK, square(8, 4): XK, square(2, 0): WR, square(2, 1): XR}
+        classic = Board(pieces, turn=CHESS)
+        balanced = Board(pieces, turn=CHESS, balanced=True)
+        capture = Move(square(2, 0), square(2, 1))
+        self.assertEqual(evaluate(balanced) - evaluate(classic), (335 - 480) - (640 - 580))
+        self.assertEqual(Search._tactical_score(classic, capture), 16 * 580 - 480)
+        self.assertEqual(Search._tactical_score(balanced.copy(), capture), 16 * 640 - 335)
+
     def test_quiescence_looks_past_a_poisoned_capture(self):
         board = position((2, 0, WQ), (2, 1, XN), (2, 2, XR))
         poisoned = Move(square(2, 0), square(2, 1))

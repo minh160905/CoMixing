@@ -26,24 +26,30 @@ def move_key(move):
     return [move.src, move.dst, move.promotion]
 
 
-@cache
-def client_config():
+def _premove_geometry(*, balanced):
     cells = [0] * SIZE
     geometry = [None]
     for piece in range(1, len(SIDE)):
         routes = [[] for _ in cells]
         for src in SQUARES:
             cells[src] = piece
-            routes[src] = [[move.dst, move.promotion] for move in possible_moves(cells, 0, src)]
+            choices = possible_moves(cells, 0, src, balanced=balanced)
+            routes[src] = [[move.dst, move.promotion] for move in choices]
             cells[src] = 0
         geometry.append(routes)
+    return geometry
+
+
+@cache
+def client_config():
     return {
         "pieces": PIECE_NAMES,
         "sides": SIDE_NAMES,
         "sideByPiece": SIDE,
         "coords": {sq: coordinates(sq) for sq in SQUARES},
         "palace": sorted(WESTERN_PALACE),
-        "geometry": geometry,
+        "geometry": _premove_geometry(balanced=False),
+        "balancedGeometry": _premove_geometry(balanced=True),
         "castles": [
             {"right": right, "move": move_key(move), "rook": [move.rook_from, move.rook_to]}
             for right, move in _CASTLES

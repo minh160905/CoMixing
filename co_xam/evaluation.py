@@ -5,7 +5,9 @@ from .board import (
     WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP,
 )
 
-MATERIAL = (0, 20_000, 900, 510, 330, 325, 100, 20_000, 555, 445, 335, 190, 175, 105)
+MATERIAL = (0, 20_000, 860, 480, 290, 235, 105, 20_000, 580, 285, 255, 85, 85, 65)
+BALANCED_MATERIAL = (0, 20_000, 860, 335, 155, 335, 100, 20_000, 640, 125, 190, 90, 170, 65)
+MATERIAL_BY_RULESET = (MATERIAL, BALANCED_MATERIAL)
 PHASE_WEIGHT = (0, 0, 4, 2, 1, 1, 0, 0, 2, 2, 1, 1, 1, 0)
 OPENING_PHASE = 26
 MIDDLE_PHASE = 16
@@ -62,19 +64,23 @@ for piece in range(1, len(SIDE)):
             PIECE_SQUARE_TABLES[stage][piece][sq] = positional_score
 
 # Store the signed material contribution together with each positional term.
-_SIGNED_TABLES = tuple(
-    tuple(
-        tuple((MATERIAL[piece] + score) * (1 if SIDE[piece] == CHESS else -1) for score in row)
-        for piece, row in enumerate(phase_table)
+def _signed_tables(material):
+    return tuple(
+        tuple(
+            tuple((material[piece] + score) * (1 if SIDE[piece] == CHESS else -1) for score in row)
+            for piece, row in enumerate(phase_table)
+        )
+        for phase_table in PIECE_SQUARE_TABLES
     )
-    for phase_table in PIECE_SQUARE_TABLES
-)
+
+
+_SIGNED_TABLES = tuple(_signed_tables(material) for material in MATERIAL_BY_RULESET)
 
 
 def evaluate(board):
     """Return a centipawn-like score from the current player's perspective."""
     cells = board.cells
-    opening, middle, endgame = _SIGNED_TABLES
+    opening, middle, endgame = _SIGNED_TABLES[board.balanced]
     phase = opening_score = middle_score = endgame_score = 0
     for locations in board.positions:
         for sq in locations:

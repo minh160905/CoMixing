@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from time import monotonic
 
 from .board import CANNON_UNLOCK_PLY, XIANGQI, Move, SIZE, SQUARE_BITS
-from .evaluation import MATERIAL, evaluate
+from .evaluation import MATERIAL_BY_RULESET, evaluate
 
 MATE = 100_000
 MATE_THRESHOLD = MATE - 500
@@ -100,8 +100,9 @@ class Search:
     def _tactical_score(board, move):
         cells = board.cells
         victim = cells[move.dst]
-        capture_score = 16 * MATERIAL[victim] - MATERIAL[cells[move.src]] if victim else 0
-        promotion_score = 12 * MATERIAL[move.promotion] if move.promotion else 0
+        material = MATERIAL_BY_RULESET[board.balanced]
+        capture_score = 16 * material[victim] - material[cells[move.src]] if victim else 0
+        promotion_score = 12 * material[move.promotion] if move.promotion else 0
         return capture_score + promotion_score
 
     def _ordered_moves(self, board, ply, tt_move=None, tactical_only=False):

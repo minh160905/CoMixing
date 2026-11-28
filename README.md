@@ -22,6 +22,11 @@ Trong mục **Bộ luật**, chọn **Cổ điển** hoặc **Cân bằng**. M�
 
 Ở bộ luật **Cân bằng**, Vua cờ vua chỉ được đi trong cung **c8–f6**, gồm các cột c, d, e, f và ba hàng 8, 7, 6. Đường viền xanh đánh dấu cung. Vua được nhập thành xa về c8 khi đủ điều kiện.
 
+- **Tượng cờ tướng** đi chéo hai bước, được qua sông và bỏ chặn mắt ở cả hai phần bàn.
+- **Sĩ cờ tướng** đi ngang hoặc dọc một bước cả trong lẫn ngoài cung, kể cả qua sông. Sĩ chỉ đi chéo một bước theo đường kẻ nối tâm cung với góc.
+- **Xe cờ vua** đi tối đa hai bước khi xuất phát trên phần cờ tướng.
+- **Tốt cờ vua** đến hàng cuối không phong cấp. Từ hàng cuối, Tốt chỉ đi hoặc ăn ngang một điểm.
+
 ## Bản web trên Vercel
 
 Bản web dùng cùng bộ luật và bot Python với bản desktop. Có thể chơi hai người trên cùng trình duyệt hoặc đấu máy. Mỗi bộ luật giữ một ván riêng trong phiên chơi. API dựng lại thế cờ từ lịch sử nước đi và chạy độc lập cho mỗi yêu cầu, nên không cần cơ sở dữ liệu hay biến môi trường.
@@ -51,14 +56,14 @@ Import repo vào Vercel với **Root Directory** là thư mục gốc và **Fram
 
 - Cờ tướng mở màn. Giới hạn ngòi Pháo tính theo ba lượt đầu của bên cờ tướng.
 - Một nước vượt sông dừng ở bờ đến. Nước nhảy đối chiếu cột đích rồi đặt quân ở bờ. Đường kẻ ngoài cùng chỉ có một ô cờ vua kề nó. Các điều kiện chặn đường của từng quân vẫn áp dụng khi qua sông.
-- Giới hạn hai bước của Hậu và Tượng cờ vua, cùng quy tắc chặn chân Mã, xét theo phần bàn nơi quân xuất phát. Tốt cờ vua qua sông bằng cách tiến thẳng đến một trong hai giao điểm trống kề cột của nó. Tốt cờ vua ở phần cờ tướng chỉ tiến thẳng và ăn chéo về phía trước. Tốt cờ vua tới hàng cuối chọn phong Hậu, Xe, Tượng hoặc Mã.
+- Giới hạn hai bước của Hậu và Tượng cờ vua, cùng quy tắc chặn chân Mã, xét theo phần bàn nơi quân xuất phát. Tốt cờ vua qua sông bằng cách tiến thẳng đến một trong hai giao điểm trống kề cột của nó. Trước hàng cuối phần cờ tướng, Tốt cờ vua tiến thẳng và ăn chéo về phía trước. Ở Cổ điển, Tốt cờ vua tới hàng cuối chọn phong Hậu, Xe, Tượng hoặc Mã.
 - Tướng cờ tướng ở trong cung, được đi ngang hoặc dọc một điểm và đi chéo một điểm theo đường kẻ nối tâm cung với góc.
 - Nhập thành giữ luật cờ vua. Nước đi của bất kỳ bên nào làm Vua và Tướng lộ mặt đều không hợp lệ.
 - Chiếu hết thắng ván. Hai bên hòa nếu bên đến lượt hết nước hợp lệ khi không bị chiếu, cùng thế cờ lặp lại ba lần, hoặc hai bên đi liên tiếp tổng cộng 100 nước không bắt quân và không đi Tốt.
 
 ## Bot Python
 
-Bot dùng mảng bàn cờ một chiều, các tuyến di chuyển tính sẵn và hoàn tác gia tăng. Negamax dùng Alpha–Beta, Iterative Deepening và Quiescence Search. Bảng chuyển vị dùng khóa Zobrist. Bot ưu tiên nước trong bảng, nước ăn theo MVV–LVA, phong cấp và chiếu. Hàm lượng giá pha trộn điểm vật chất và ba bộ bảng điểm vị trí cho khai cuộc, trung cuộc và tàn cuộc.
+Bot dùng mảng bàn cờ một chiều, các tuyến di chuyển tính sẵn và hoàn tác gia tăng. Negamax dùng Alpha–Beta, Iterative Deepening và Quiescence Search. Bảng chuyển vị dùng khóa Zobrist. Bot ưu tiên nước trong bảng, nước ăn theo MVV–LVA, phong cấp và chiếu. Hàm lượng giá pha trộn điểm vật chất và ba bộ bảng điểm vị trí cho khai cuộc, trung cuộc và tàn cuộc. Bot Cân bằng dùng bảng điểm đã thử ở độ sâu 4, với Tốt cờ tướng bằng 65 điểm.
 
 Bot có các mức 1, 3, 8 giây và **Chuyên gia · 12 giây** trên desktop và web. Mức Chuyên gia thử một cửa sổ Alpha–Beta hẹp quanh điểm của lượt tìm trước, rồi mở rộng khi cần. Nó lọc nhanh các nước có thể chiếu trước khi xét tính hợp lệ. Khi hết giờ, bot dùng nước đi tốt nhất từ độ sâu đã tìm xong gần nhất.
 

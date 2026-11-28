@@ -46,15 +46,19 @@ RULES = (
     ("Cổ điển và Cân bằng", "Ở bộ luật Cân bằng, Vua cờ vua chỉ đi trong cung 4 × 3, "
      "từ cột c đến f và từ hàng 8 đến 6. Đường viền xanh trên bàn đánh dấu cung Vua. "
      "Vua có thể nhập thành xa nếu đủ điều kiện."),
+    ("Các nước riêng của Cân bằng", "Tượng cờ tướng đi chéo hai bước, được qua sông và bỏ chặn mắt. "
+     "Sĩ được ra khỏi cung bằng nước ngang hoặc dọc một bước, kể cả qua sông. Sĩ chỉ đi chéo trên "
+     "đường kẻ trong cung. Xe cờ vua đi tối đa hai bước khi xuất phát ở phần cờ tướng. "
+     "Tốt cờ vua đến hàng cuối không phong cấp và từ đó chỉ đi hoặc ăn ngang một điểm."),
     ("Qua sông", "Một nước vượt sông dừng ở bờ đến. Ô cờ vua ứng với hai giao điểm "
      "cờ tướng kề nó. Đường kẻ ngoài cùng chỉ có một ô cờ vua tương ứng."),
     ("Hậu, Tượng và Tốt", "Hậu và Tượng cờ vua đi tối đa hai bước khi xuất phát "
      "trên phần cờ tướng. Khi qua sông, Tốt cờ vua chỉ tiến thẳng đến giao điểm trống. "
-     "Trên phần cờ tướng, Tốt cờ vua chỉ đi thẳng và ăn chéo về phía trước. "
-     "Tốt cờ vua phong cấp ở hàng cuối bên kia. Tốt cờ tướng được đi hoặc ăn ngang trên phần cờ vua."),
+     "Trước hàng cuối phần cờ tướng, Tốt cờ vua đi thẳng và ăn chéo về phía trước. "
+     "Ở Cổ điển, Tốt cờ vua phong cấp ở hàng cuối. Tốt cờ tướng được đi hoặc ăn ngang trên phần cờ vua."),
     ("Mã và cung Tướng", "Mã hai bên bị chặn chân khi xuất phát trên phần cờ tướng. "
-     "Trên phần cờ vua, Mã nhảy tự do. Tướng và Sĩ ở trong cung. Tướng được đi chéo một điểm "
-     "theo đường kẻ nối tâm cung với góc. Tượng cờ tướng không qua sông."),
+     "Trên phần cờ vua, Mã nhảy tự do. Tướng ở trong cung và được đi chéo một điểm "
+     "theo đường kẻ nối tâm cung với góc. Ở Cổ điển, Sĩ ở trong cung và Tượng cờ tướng ở phần sân nhà."),
     ("Pháo", "Pháo cần đúng một quân làm ngòi khi ăn quân. Trong ba lượt đầu "
      "của bên cờ tướng, ngòi phải là quân cờ tướng."),
     ("Nhập thành và lộ mặt Tướng", "Vua cờ vua được nhập thành theo luật cờ vua. "
