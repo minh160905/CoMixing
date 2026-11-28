@@ -5,8 +5,8 @@ from http.server import BaseHTTPRequestHandler
 import json
 
 from co_xam.board import (
-    Board, PIECE_NAMES, SIDE, SIDE_NAMES, SIZE, SQUARES, WESTERN_PALACE,
-    CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS, coordinates,
+    Board, CANNON_UNLOCK_PLY, PIECE_NAMES, SIDE, SIDE_NAMES, SIZE, SQUARES, WESTERN_PALACE,
+    CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS, coordinates, validate_custom_position,
 )
 from co_xam.premove import _CASTLES, MAX_PREMOVES, possible_moves
 from co_xam.search import Search
@@ -83,7 +83,20 @@ def game_state(request):
     if action == "bot" and (type(seconds) is not int or seconds not in TIME_OPTIONS):
         raise ValueError("Thời gian bot phải là 1, 3 hoặc 8 giây.")
 
-    board = Board(balanced=rules == "balanced")
+    setup = request.get("setup")
+    if setup is None:
+        board = Board(balanced=rules == "balanced")
+    else:
+        if not isinstance(setup, dict):
+            raise ValueError("Dữ liệu thế cờ tùy chỉnh không hợp lệ.")
+        board, error = validate_custom_position(
+            setup.get("cells"),
+            setup.get("turn", 1),
+            balanced=rules == "balanced",
+            ply=setup.get("ply", CANNON_UNLOCK_PLY),
+        )
+        if error is not None:
+            raise ValueError(error)
     records = []
     legal = board.legal_moves()
     for key in history:

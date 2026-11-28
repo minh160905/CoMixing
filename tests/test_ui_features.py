@@ -3,8 +3,8 @@ import tkinter as tk
 import unittest
 
 from co_xam.board import (
-    CHESS, XIANGQI, SIDE, SQUARES, WESTERN_PALACE,
-    WK, WP, XC, XK, XP, Board, square,
+    CHESS, XIANGQI, EMPTY, SIDE, SIZE, SQUARES, WESTERN_PALACE,
+    WK, WQ, WR, WP, XC, XE, XA, XK, XP, Board, square, validate_custom_position,
 )
 from co_xam.board_view import BoardView, valid_piece_colors
 from co_xam.ui import GameApp
@@ -56,6 +56,64 @@ class PieceColorRules(unittest.TestCase):
 
         balanced_king = Board({square(2, 5): WK, square(8, 4): XK}, balanced=True, turn=XIANGQI, ply=6)
         self.assertTrue(balanced_king.threat_targets(square(2, 5)) <= WESTERN_PALACE)
+
+    def test_validate_custom_position_rules(self):
+        # Valid endgame setup
+        cells = [EMPTY] * SIZE
+        cells[square(0, 4)] = WK
+        cells[square(8, 4)] = XK
+        cells[square(5, 4)] = XP  # blocks facing royals
+        cells[square(2, 2)] = WQ
+        board, err = validate_custom_position(cells, CHESS, balanced=False)
+        self.assertIsNone(err)
+        self.assertIsNotNone(board)
+        self.assertEqual(board.turn, CHESS)
+
+        # Facing royals rejected
+        cells[square(5, 4)] = EMPTY
+        board, err = validate_custom_position(cells, CHESS, balanced=False)
+        self.assertIsNone(board)
+        self.assertIn("lộ mặt", err)
+
+        # Missing king rejected
+        cells[square(0, 4)] = EMPTY
+        board, err = validate_custom_position(cells, CHESS, balanced=False)
+        self.assertIsNone(board)
+        self.assertIn("Vua", err)
+
+        # Advisor outside palace rejected
+        cells[square(0, 4)] = WK
+        cells[square(5, 4)] = XP
+        cells[square(5, 2)] = XA
+        board, err = validate_custom_position(cells, CHESS, balanced=False)
+        self.assertIsNone(board)
+        self.assertIn("Sĩ", err)
+
+        # Elephant on chess half rejected
+        cells[square(5, 2)] = EMPTY
+        cells[square(2, 1)] = XE
+        board, err = validate_custom_position(cells, CHESS, balanced=False)
+        self.assertIsNone(board)
+        self.assertIn("Tượng", err)
+
+        # Balanced king outside western palace rejected
+        cells[square(2, 1)] = EMPTY
+        cells[square(0, 4)] = EMPTY
+        cells[square(0, 0)] = WK
+        board, err = validate_custom_position(cells, CHESS, balanced=True)
+        self.assertIsNone(board)
+        self.assertIn("c8–f6", err)
+
+        # Non-moving side already in check rejected
+        cells[square(0, 0)] = EMPTY
+        cells[square(0, 4)] = WK
+        cells[square(5, 4)] = EMPTY
+        cells[square(2, 4)] = WR  # checks XK on (8, 4)? No, river stops at row 4; put WR at (6, 4)!
+        cells[square(2, 4)] = EMPTY
+        cells[square(6, 4)] = WR  # checks XK at (8, 4) while it is Chess's turn!
+        board, err = validate_custom_position(cells, CHESS, balanced=False)
+        self.assertIsNone(board)
+        self.assertIn("đang bị chiếu", err)
 
 
 class BoardRotationAndUiBehavior(unittest.TestCase):
@@ -169,6 +227,32 @@ class BoardRotationAndUiBehavior(unittest.TestCase):
             self.assertTrue(app._inspect_threat(opp_knight))
             self.assertFalse(app._inspect_threat(own_pawn))
             self.assertIsNone(app.threat_source)
+
+            # Practice room: enter, clear, drag/drop pieces, delete, and start custom game
+            app.toggle_practice()
+            self.assertTrue(app.practice_mode)
+            app._practice_clear_board()
+            self.assertEqual(app.practice_cells[square(0, 4)], WK)
+            self.assertEqual(app.practice_cells[square(8, 4)], XK)
+            # Facing royals -> start button disabled
+            self.assertEqual(str(app.practice_start_button.cget("state")), "disabled")
+            # Place a blocking pawn and a Queen, drag Queen to another square, drag extra pawn off-board to delete
+            app._practice_place(square(5, 4), XP)
+            app._practice_place(square(2, 2), WQ)
+            app._practice_drop(square(2, 2), square(2, 3))
+            self.assertEqual(app.practice_cells[square(2, 2)], EMPTY)
+            self.assertEqual(app.practice_cells[square(2, 3)], WQ)
+            app._practice_place(square(1, 0), WP)
+            app._practice_drop(square(1, 0), None)
+            self.assertEqual(app.practice_cells[square(1, 0)], EMPTY)
+            app._set_practice_turn(CHESS)
+            self.assertEqual(str(app.practice_start_button.cget("state")), "normal")
+            app.start_practice_game()
+            app._cancel_bot()
+            self.assertFalse(app.practice_mode)
+            self.assertEqual(app.board.turn, CHESS)
+            self.assertEqual(app.board.cells[square(2, 3)], WQ)
+            self.assertEqual(app.record, [])
         finally:
             app._cancel_bot()
 

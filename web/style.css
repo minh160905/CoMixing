@@ -182,6 +182,51 @@ tr.east { color: var(--east); }
 .empty { padding: 1rem .55rem; text-align: center; color: var(--muted); font-size: .87rem; }
 #undo { width: 100%; margin-top: auto; }
 
+.practice { flex: 1; padding: .7rem; display: flex; flex-direction: column; gap: .5rem; }
+.practice h2 { font-size: 1.15rem; }
+.practice-hint { color: var(--muted); font-size: .8rem; line-height: 1.38; }
+.palette-group { display: flex; flex-direction: column; gap: .25rem; }
+.palette-label { font-size: .78rem; font-weight: 700; }
+.palette-label.west { color: var(--west); }
+.palette-label.east { color: var(--east); }
+.palette-grid { display: grid; gap: .25rem; }
+.palette-grid.west { grid-template-columns: repeat(6, 1fr); }
+.palette-grid.east { grid-template-columns: repeat(7, 1fr); }
+.palette-piece {
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  padding: 2px;
+  border-radius: .4rem;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  touch-action: none;
+  user-select: none;
+}
+.palette-piece[aria-pressed="true"] {
+  background: #2d4e43;
+  border-color: var(--gold);
+  box-shadow: inset 0 0 0 1px var(--gold);
+  color: var(--ink);
+}
+.palette-piece[aria-pressed="true"]:hover:not(:disabled) { background: #355c4f; }
+.palette-piece canvas { display: block; width: 32px; height: 32px; pointer-events: none; }
+.palette-grid.east .palette-piece canvas { width: 30px; height: 30px; }
+.practice-tools button { font-size: .8rem; }
+.practice-check { font-size: .8rem; color: var(--muted); padding: .1rem 0; }
+.practice-status { font-size: .82rem; min-height: 1.1rem; color: var(--west); }
+.practice-status.error { color: var(--east); }
+.practice-actions { display: grid; grid-template-columns: 2fr 1fr; gap: .4rem; margin-top: auto; }
+.palette-ghost {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: .92;
+  filter: drop-shadow(0 4px 10px #0008);
+}
+.palette-ghost canvas { display: block; width: 48px; height: 48px; }
+
 dialog { padding: 0; width: min(34rem, calc(100% - 2rem)); max-height: 88svh; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: .72rem; }
 dialog::backdrop { background: #070f0cbb; }
 .dialog-head { background: var(--raised); padding: 1rem 1.15rem; border-bottom: 1px solid var(--border); }
@@ -207,7 +252,7 @@ dialog::backdrop { background: #070f0cbb; }
 }
 @media (max-width: 460px) {
   .top-inner { flex-direction: column; align-items: flex-start; gap: .55rem; }
-  .top-actions { display: grid; width: 100%; grid-template-columns: repeat(3, 1fr); }
+  .top-actions { display: grid; width: 100%; grid-template-columns: repeat(2, 1fr); }
   .top-actions button { min-height: 36px; padding: .38rem .25rem; }
   .playing-area { padding: .4rem; }
   .legend { gap: .26rem .58rem; }

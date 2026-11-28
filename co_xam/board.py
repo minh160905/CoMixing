@@ -204,6 +204,56 @@ class Outcome:
     reason: int
 
 
+def validate_custom_position(cells, turn, balanced=False, ply=CANNON_UNLOCK_PLY):
+    """Validate a manually arranged board and return (Board, None) or (None, error_message)."""
+    if not isinstance(cells, (list, tuple)) or len(cells) != SIZE:
+        return None, "Dữ liệu bàn cờ không hợp lệ."
+    if turn not in (CHESS, XIANGQI):
+        return None, "Bên đi trước không hợp lệ."
+    if type(ply) is not int or ply < 0:
+        return None, "Thông số lượt Pháo không hợp lệ."
+    valid_squares = set(SQUARES)
+    pieces = {}
+    wk_squares = []
+    xk_squares = []
+    for sq, piece in enumerate(cells):
+        if type(piece) is not int or not 0 <= piece < len(SIDE):
+            return None, "Quân cờ không hợp lệ."
+        if not piece:
+            continue
+        if sq not in valid_squares:
+            return None, "Có quân nằm ngoài bàn cờ hợp lệ."
+        if piece == WK:
+            wk_squares.append(sq)
+        elif piece == XK:
+            xk_squares.append(sq)
+        elif piece == XA and not _inside_palace(sq):
+            return None, "Sĩ cờ tướng phải nằm trong cung Tướng."
+        elif piece == XE and sq // FILES < RIVER:
+            return None, "Tượng cờ tướng phải nằm ở phần sân cờ tướng."
+        pieces[sq] = piece
+    if len(wk_squares) != 1:
+        return None, "Cần đúng 1 Vua cờ vua trên bàn."
+    if len(xk_squares) != 1:
+        return None, "Cần đúng 1 Tướng cờ tướng trên bàn."
+    if not _inside_palace(xk_squares[0]):
+        return None, "Tướng cờ tướng phải nằm trong cung Tướng."
+    if balanced and wk_squares[0] not in WESTERN_PALACE:
+        return None, "Ở bộ luật Cân bằng, Vua cờ vua phải nằm trong cung c8–f6."
+    rights = 0
+    if pieces.get(4) == WK:
+        if pieces.get(0) == WR:
+            rights |= QUEENSIDE
+        if not balanced and pieces.get(7) == WR:
+            rights |= KINGSIDE
+    board = Board(pieces, turn=turn, rights=rights, ply=ply, balanced=balanced)
+    if board.royals_face():
+        return None, "Vua cờ vua và Tướng cờ tướng đang lộ mặt."
+    if board.in_check(1 - turn):
+        return None, f"{SIDE_NAMES[1 - turn]} đang bị chiếu khi chưa tới lượt đi."
+    return board, None
+
+
 class Board:
     """A flat board with constant-time make/unmake and indexed piece locations."""
 

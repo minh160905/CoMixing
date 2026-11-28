@@ -66,12 +66,15 @@ def valid_piece_colors(chess_color, xiangqi_color):
 
 class BoardView(tk.Canvas):
     def __init__(self, parent, on_pick, on_grab, on_cancel_premove, ui_font, chinese_font,
-                 on_inspect_threat=None):
+                 on_inspect_threat=None, on_edit_click=None, on_edit_drop=None, on_edit_delete=None):
         super().__init__(parent, background=STAGE, highlightthickness=0, takefocus=True)
         self.on_pick = on_pick
         self.on_grab = on_grab
         self.on_cancel_premove = on_cancel_premove
         self.on_inspect_threat = on_inspect_threat
+        self.on_edit_click = on_edit_click
+        self.on_edit_drop = on_edit_drop
+        self.on_edit_delete = on_edit_delete
         self.ui_font = ui_font
         self.chinese_font = chinese_font
         self._piece_atlases = {}
@@ -79,6 +82,7 @@ class BoardView(tk.Canvas):
         self.board = None
         self.displayed = None
         self.flipped = False
+        self.editing = False
         self.chess_color = "white"
         self.xiangqi_color = "red"
         self.threat_source = None
@@ -106,10 +110,11 @@ class BoardView(tk.Canvas):
     def show_position(self, board, selection, targets, last_move, check, candidates, *,
                       projected=None, premoves=(), show_targets=True,
                       flipped=False, chess_color="white", xiangqi_color="red",
-                      threat_source=None, threat_targets=frozenset()):
+                      threat_source=None, threat_targets=frozenset(), editing=False):
         next_mirror = flipped and chess_color == "black"
         if self.displayed is not None and (
-            self.displayed[0] != board.key or self.flipped != flipped or self._mirror_x() != next_mirror
+            self.displayed[0] != board.key or self.flipped != flipped
+            or self._mirror_x() != next_mirror or self.editing != editing
         ):
             self.cancel_gestures()
         self.board = board
@@ -120,7 +125,8 @@ class BoardView(tk.Canvas):
         state = (
             board.key, selection, targets, last_move, check, premoves,
             show_targets, projected is not None, flipped, chess_color, xiangqi_color,
-            threat_source, threat_targets,
+            threat_source, threat_targets, editing, tuple(self.cells) if editing else None,
+            board.balanced,
         )
         if state == self.displayed:
             return
@@ -136,6 +142,7 @@ class BoardView(tk.Canvas):
         self.xiangqi_color = xiangqi_color
         self.threat_source = threat_source
         self.threat_targets = threat_targets
+        self.editing = editing
         self.redraw()
 
     def point(self, sq):
@@ -177,8 +184,34 @@ class BoardView(tk.Canvas):
         was_dragging = self._drag_point is not None
         self._left_start = self._drag_point = self._right_start = None
         self.delete("arrow-preview")
+        self.delete("palette-drag")
         if was_dragging:
             self.redraw()
+
+    def preview_palette_drag(self, piece, x_root, y_root):
+        self.delete("palette-drag")
+        if not piece or not hasattr(self, "unit"):
+            return
+        x = x_root - self.winfo_rootx()
+        y = y_root - self.winfo_rooty()
+        if not (0 <= x <= self.winfo_width() and 0 <= y <= self.winfo_height()):
+            return
+        sq = self._at(x, y)
+        if sq is not None:
+            px, py = self.point(sq)
+            radius = self.unit * .46
+            self._disc(px, py, radius, outline="#f0ca83", width=2.5, dash=(4, 3), tags=("palette-drag",))
+        self._piece(x, y, piece, tags=("palette-drag",))
+
+    def drop_palette_piece(self, x_root, y_root):
+        self.delete("palette-drag")
+        if not hasattr(self, "unit"):
+            return None
+        x = x_root - self.winfo_rootx()
+        y = y_root - self.winfo_rooty()
+        if not (0 <= x <= self.winfo_width() and 0 <= y <= self.winfo_height()):
+            return None
+        return self._at(x, y)
 
     def _press_left(self, event):
         self.focus_set()
@@ -195,7 +228,8 @@ class BoardView(tk.Canvas):
             if hypot(event.x - x, event.y - y) < 5:
                 return
             self._drag_point = (event.x, event.y)
-            self.on_grab(sq)
+            if not self.editing:
+                self.on_grab(sq)
             self.redraw()
         else:
             x, y = self._drag_point
@@ -205,11 +239,20 @@ class BoardView(tk.Canvas):
     def _release_left(self, event):
         if self._left_start is None:
             return
+        origin = self._left_start[0]
         dragged = self._drag_point is not None
         self._left_start = self._drag_point = None
         if dragged:
             self.redraw()
-        self.on_pick(self._at(event.x, event.y), dragged=dragged)
+        target = self._at(event.x, event.y)
+        if self.editing:
+            if dragged:
+                if self.on_edit_drop is not None:
+                    self.on_edit_drop(origin, target)
+            elif self.on_edit_click is not None:
+                self.on_edit_click(target)
+            return
+        self.on_pick(target, dragged=dragged)
 
     @staticmethod
     def _annotation_color(state, arrow=False):
@@ -243,6 +286,10 @@ class BoardView(tk.Canvas):
         self._right_start = None
         target = self._at(event.x, event.y)
         if origin is None or target is None:
+            return
+        if self.editing:
+            if origin == target and self.on_edit_delete is not None:
+                self.on_edit_delete(origin)
             return
         if origin == target:
             if self.on_cancel_premove(origin):

@@ -22,6 +22,7 @@
       <div class="top-actions">
         <button type="button" data-dialog="rules">Luật chơi</button>
         <button type="button" data-dialog="options">Tùy chọn</button>
+        <button type="button" id="practice-toggle" aria-pressed="false">Phòng tập</button>
         <button class="primary" id="new-game" type="button">Ván mới</button>
       </div>
     </div>
@@ -114,7 +115,7 @@
         </div>
       </section>
 
-      <section class="surface history" aria-labelledby="history-title">
+      <section class="surface history" id="history-panel" aria-labelledby="history-title">
         <div class="history-head">
           <h2 id="history-title">Nước đi</h2>
           <span id="move-count">0 nước</span>
@@ -128,8 +129,43 @@
         </div>
         <button type="button" id="undo" disabled>Hoàn tác</button>
       </section>
+
+      <section class="surface practice" id="practice-panel" aria-labelledby="practice-title" hidden>
+        <h2 id="practice-title">Phòng tập · Tạo thế cờ</h2>
+        <p class="practice-hint">Kéo thả quân vào bàn hoặc bấm chọn quân rồi nhấp ô. Kéo ra ngoài hay chuột phải để xóa.</p>
+        <div class="palette-group">
+          <span class="palette-label west">Quân Cờ vua</span>
+          <div class="palette-grid west" id="palette-west"></div>
+        </div>
+        <div class="palette-group">
+          <span class="palette-label east">Quân Cờ tướng</span>
+          <div class="palette-grid east" id="palette-east"></div>
+        </div>
+        <div class="segmented practice-tools">
+          <button type="button" id="practice-eraser" aria-pressed="false">Xóa quân</button>
+          <button type="button" id="practice-clear">Xóa bàn</button>
+          <button type="button" id="practice-default">Mặc định</button>
+        </div>
+        <fieldset>
+          <legend>Bên đi trước</legend>
+          <div class="segmented">
+            <button type="button" data-practice-turn="1" aria-pressed="true">Cờ tướng</button>
+            <button type="button" data-practice-turn="0" aria-pressed="false">Cờ vua</button>
+          </div>
+        </fieldset>
+        <label class="check-setting practice-check">
+          <input type="checkbox" id="practice-cannon-open" checked>Mở khóa ngòi Pháo (bỏ giới hạn 3 lượt đầu)
+        </label>
+        <p class="practice-status" id="practice-status" aria-live="polite"></p>
+        <div class="practice-actions">
+          <button type="button" class="primary" id="practice-start">Chơi từ thế cờ này</button>
+          <button type="button" id="practice-exit">Thoát</button>
+        </div>
+      </section>
     </aside>
   </main>
+
+  <div id="palette-ghost" class="palette-ghost" hidden aria-hidden="true"></div>
 
   <dialog id="rules" aria-labelledby="rules-title">
     <div class="dialog-head"><h2 id="rules-title">Luật chơi</h2></div>

@@ -1,5 +1,6 @@
 """Tk interface and game controls for Akbar VS HanXin."""
 
+from math import hypot
 import logging
 from queue import Empty, Queue
 from threading import Event, Thread
@@ -8,12 +9,14 @@ from tkinter import font, ttk
 
 from . import GAME_NAME
 from .board import (
-    CHESS, XIANGQI, SIDE, SIDE_NAMES, PIECE_NAMES,
+    CANNON_UNLOCK_PLY, CHESS, XIANGQI, EMPTY, SIDE, SIDE_NAMES, PIECE_NAMES, SIZE, SQUARES,
     CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS,
-    WK, Board, coordinates,
+    WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP,
+    Board, coordinates, square, validate_custom_position,
 )
 from .board_view import (
-    BoardView, STAGE, LEGAL, CAPTURE, LAST_MOVE, PREMOVE, valid_piece_colors,
+    BoardView, EAST_PALETTES, STAGE, LEGAL, CAPTURE, LAST_MOVE, PREMOVE,
+    WEST_PIECES, valid_piece_colors,
 )
 from .premove import MAX_PREMOVES, PremoveQueue, possible_moves
 from .search import Search
@@ -104,9 +107,17 @@ class GameApp:
             XIANGQI: self._build_seat(stage, XIANGQI, 2),
         }
         self.view = BoardView(stage, self.pick, self.grab, self._cancel_premove_at,
-                              self.ui_font, self.chinese_font, self._inspect_threat)
+                              self.ui_font, self.chinese_font, self._inspect_threat,
+                              self._practice_click, self._practice_drop, self._practice_delete)
         self.view.grid(row=1, column=0, sticky="nsew")
         self._build_legend(stage)
+
+        self.practice_mode = False
+        self.practice_cells = None
+        self.practice_turn = XIANGQI
+        self.practice_brush = WQ
+        self.practice_cannon_open = tk.BooleanVar(root, value=True)
+        self._palette_drag = None
 
         panel = tk.Frame(body, bg=APP_BG, width=328)
         panel.grid(row=0, column=1, sticky="ns")
@@ -196,6 +207,8 @@ class GameApp:
         self.rules_button.pack(side="right")
         self.options_button = self._button(nav, "Tùy chọn", self.show_options, kind="nav")
         self.options_button.pack(side="right", padx=(0, 8))
+        self.practice_button = self._button(nav, "Phòng tập", self.toggle_practice, kind="nav")
+        self.practice_button.pack(side="right", padx=(0, 8))
         self.new_button = self._button(nav, "Ván mới", self.new_game, kind="primary")
         self.new_button.pack(side="right", padx=(0, 8))
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=0, column=0, sticky="sew")
@@ -289,7 +302,7 @@ class GameApp:
             self.bot_panel, "Thời gian bot", (("1 giây", 1), ("3 giây", 3), ("8 giây", 8)), self.set_time, margin=7
         )
 
-        history = self._card(panel, padx=10)
+        history = self.history_card = self._card(panel, padx=10)
         history.pack(fill="both", expand=True)
         log_header = tk.Frame(history, bg=PAPER)
         log_header.pack(fill="x", padx=2, pady=(0, 6))
@@ -321,6 +334,207 @@ class GameApp:
         self.log_scroll.grid(row=0, column=1, sticky="ns")
         self.log.configure(yscrollcommand=self._on_log_scroll)
         self.empty_log = self._label(scrollable, "Chưa có nước đi", 9, fg=MUTED)
+        self.practice_panel = self._build_practice_panel(panel)
+
+    def _build_practice_panel(self, panel):
+        card = self._card(panel, padx=10, pady=8)
+        self._label(card, "Phòng tập · Tạo thế cờ", 11, bold=True, heading=True).pack(anchor="w")
+        self._label(
+            card, "Kéo thả quân vào bàn hoặc bấm chọn quân rồi nhấp ô. Kéo ra ngoài hoặc chuột phải để xóa.",
+            8, fg=MUTED, wrap=298,
+        ).pack(anchor="w", pady=(2, 6))
+
+        self.palette_tiles = {}
+        self._label(card, "Quân Cờ vua", 8, fg=WEST, bold=True).pack(anchor="w")
+        west_row = tk.Frame(card, bg=PAPER)
+        west_row.pack(fill="x", pady=(2, 5))
+        for idx, piece in enumerate(WEST_PIECES):
+            west_row.grid_columnconfigure(idx, weight=1, uniform="west_pal")
+            tile = self._palette_tile(west_row, piece, 40)
+            tile.grid(row=0, column=idx, padx=2, sticky="ew")
+            self.palette_tiles[piece] = tile
+
+        self._label(card, "Quân Cờ tướng", 8, fg=EAST, bold=True).pack(anchor="w")
+        east_row = tk.Frame(card, bg=PAPER)
+        east_row.pack(fill="x", pady=(2, 6))
+        for idx, piece in enumerate((XK, XR, XC, XN, XE, XA, XP)):
+            east_row.grid_columnconfigure(idx, weight=1, uniform="east_pal")
+            tile = self._palette_tile(east_row, piece, 36)
+            tile.grid(row=0, column=idx, padx=1, sticky="ew")
+            self.palette_tiles[piece] = tile
+
+        tools = tk.Frame(card, bg=PAPER)
+        tools.pack(fill="x", pady=(0, 6))
+        for idx in range(3):
+            tools.grid_columnconfigure(idx, weight=1, uniform="ptool")
+        self.eraser_button = self._button(tools, "Xóa quân", lambda: self._select_brush(EMPTY), compact=True)
+        self.eraser_button.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        self._button(tools, "Xóa bàn", self._practice_clear_board, compact=True).grid(
+            row=0, column=1, sticky="ew", padx=3
+        )
+        self._button(tools, "Mặc định", self._practice_reset_default, compact=True).grid(
+            row=0, column=2, sticky="ew", padx=(3, 0)
+        )
+
+        self.practice_turn_buttons = self._options(
+            card, "Bên đi trước", (("Cờ tướng", XIANGQI), ("Cờ vua", CHESS)), self._set_practice_turn
+        )
+        tk.Checkbutton(
+            card, text="Mở khóa ngòi Pháo (bỏ giới hạn 3 lượt đầu)", variable=self.practice_cannon_open,
+            command=self._refresh, bg=PAPER, activebackground=PAPER, fg=MUTED, selectcolor=SOFT,
+            font=(self.ui_font, 8), anchor="w",
+        ).pack(fill="x", pady=(4, 4))
+
+        self.practice_status = self._label(card, "", 8, fg=MUTED, wrap=298)
+        self.practice_status.pack(anchor="w", pady=(0, 6))
+
+        actions = tk.Frame(card, bg=PAPER)
+        actions.pack(side="bottom", fill="x")
+        actions.grid_columnconfigure(0, weight=2)
+        actions.grid_columnconfigure(1, weight=1)
+        self.practice_start_button = self._button(
+            actions, "Chơi từ thế cờ này", self.start_practice_game, kind="primary", compact=True
+        )
+        self.practice_start_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self._button(actions, "Thoát", self.toggle_practice, compact=True).grid(row=0, column=1, sticky="ew")
+        return card
+
+    def _palette_tile(self, parent, piece, size):
+        tile = tk.Canvas(parent, width=size, height=size, bg=SOFT, highlightthickness=1,
+                         highlightbackground=BORDER, cursor="hand2")
+        tile.piece = piece
+        tile.tile_size = size
+        tile.bind("<ButtonPress-1>", lambda e, p=piece: self._palette_press(e, p))
+        tile.bind("<B1-Motion>", self._palette_motion)
+        tile.bind("<ButtonRelease-1>", self._palette_release)
+        tile.bind("<Configure>", lambda _: self._redraw_palette() if self.practice_mode else None)
+        return tile
+
+    def _redraw_palette(self):
+        palette = EAST_PALETTES[self.xiangqi_color]
+        for piece, tile in self.palette_tiles.items():
+            selected = self.practice_brush == piece
+            tile.configure(bg=WEST_TINT if selected else SOFT,
+                           highlightbackground=GOLD if selected else BORDER)
+            tile.delete("all")
+            w = tile.winfo_width()
+            size = w if w > 10 else tile.tile_size
+            cx, cy = size / 2, tile.tile_size / 2
+            if piece in WEST_PIECES:
+                tile.create_image(cx, cy, image=self.view.western_image(piece, 32, self.chess_color))
+            else:
+                r = 14
+                tile.create_oval(cx - r, cy - r, cx + r, cy + r,
+                                 fill=palette["fill"], outline=palette["outline"], width=1.6)
+                tile.create_text(cx, cy, text=palette["marks"][piece], fill=palette["ink"],
+                                 font=(self.chinese_font, -16, "bold"))
+
+    def _palette_press(self, event, piece):
+        self._palette_drag = [piece, event.x_root, event.y_root, False]
+        self._select_brush(piece)
+
+    def _palette_motion(self, event):
+        if self._palette_drag is None:
+            return
+        piece, sx, sy, dragging = self._palette_drag
+        if not dragging and hypot(event.x_root - sx, event.y_root - sy) < 5:
+            return
+        self._palette_drag[3] = True
+        self.view.preview_palette_drag(piece, event.x_root, event.y_root)
+
+    def _palette_release(self, event):
+        if self._palette_drag is None:
+            return
+        piece, _, _, dragging = self._palette_drag
+        self._palette_drag = None
+        if dragging:
+            sq = self.view.drop_palette_piece(event.x_root, event.y_root)
+            if sq is not None:
+                self._practice_place(sq, piece)
+
+    def toggle_practice(self):
+        self._cancel_bot()
+        self._clear_plan()
+        self.view.clear_annotations()
+        if self.practice_mode:
+            self.practice_mode = False
+        else:
+            self.practice_mode = True
+            self.practice_cells = self.board.cells.copy()
+            self.practice_turn = self.board.turn
+        self._refresh()
+
+    def _select_brush(self, piece):
+        self.practice_brush = piece
+        self._refresh()
+
+    def _set_practice_turn(self, side):
+        self.practice_turn = side
+        self._refresh()
+
+    def _practice_clear_board(self):
+        self.practice_cells = [EMPTY] * SIZE
+        self.practice_cells[square(0, 4)] = WK
+        self.practice_cells[square(8, 4)] = XK
+        self._refresh()
+
+    def _practice_reset_default(self):
+        self.practice_cells = Board(balanced=self.balanced).cells.copy()
+        self.practice_turn = XIANGQI
+        self._refresh()
+
+    def _practice_place(self, sq, piece):
+        if not self.practice_mode or sq is None or sq not in SQUARES:
+            return
+        if piece in (WK, XK):
+            for idx, existing in enumerate(self.practice_cells):
+                if existing == piece:
+                    self.practice_cells[idx] = EMPTY
+        self.practice_cells[sq] = piece
+        self._refresh()
+
+    def _practice_click(self, sq):
+        if not self.practice_mode or sq is None:
+            return
+        self._practice_place(sq, self.practice_brush)
+
+    def _practice_drop(self, origin, target):
+        if not self.practice_mode or origin is None:
+            return
+        piece = self.practice_cells[origin]
+        if not piece:
+            return
+        if target is None:
+            self.practice_cells[origin] = EMPTY
+        elif target != origin:
+            self.practice_cells[origin] = EMPTY
+            self.practice_cells[target] = piece
+        self._refresh()
+
+    def _practice_delete(self, sq):
+        if not self.practice_mode or sq is None:
+            return
+        if self.practice_cells[sq]:
+            self.practice_cells[sq] = EMPTY
+            self._refresh()
+
+    def start_practice_game(self):
+        if not self.practice_mode:
+            return
+        ply = CANNON_UNLOCK_PLY if self.practice_cannon_open.get() else 0
+        board, error = validate_custom_position(
+            self.practice_cells, self.practice_turn, balanced=self.balanced, ply=ply
+        )
+        if board is None:
+            self._refresh()
+            return
+        self.practice_mode = False
+        self.board = board
+        self.record = []
+        self._clear_plan()
+        self.view.clear_annotations()
+        self.bot_note = ""
+        self._update_position()
 
     def _on_log_scroll(self, first, last):
         self.log_scroll.set(first, last)
@@ -352,6 +566,10 @@ class GameApp:
     def set_ruleset(self, balanced):
         if balanced == self.balanced:
             return
+        if self.practice_mode:
+            self.balanced = balanced
+            self._refresh()
+            return
         self._cancel_bot()
         self.saved_games[self.balanced] = self.board, self.record, self.bot_note
         self.balanced = balanced
@@ -371,7 +589,8 @@ class GameApp:
         self.vs_bot = enabled
         self._clear_plan()
         self._refresh()
-        self._maybe_start_bot()
+        if not self.practice_mode:
+            self._maybe_start_bot()
 
     def set_human(self, side):
         if side == self.human:
@@ -380,7 +599,8 @@ class GameApp:
         self.human = side
         self._clear_plan()
         self._refresh()
-        self._maybe_start_bot()
+        if not self.practice_mode:
+            self._maybe_start_bot()
 
     def set_time(self, seconds):
         if seconds == self.think_time:
@@ -388,7 +608,8 @@ class GameApp:
         self._cancel_bot()
         self.think_time = seconds
         self._refresh()
-        self._maybe_start_bot()
+        if not self.practice_mode:
+            self._maybe_start_bot()
 
     def _board_flipped(self):
         return self.vs_bot and self.human == CHESS
@@ -407,6 +628,7 @@ class GameApp:
 
     def new_game(self):
         self._cancel_bot()
+        self.practice_mode = False
         self.board = Board(balanced=self.balanced)
         self.record = []
         self._clear_plan()
@@ -449,8 +671,71 @@ class GameApp:
             self.bot_panel.pack(fill="x")
         else:
             self.bot_panel.pack_forget()
+        pb_normal, pb_fg, pb_hover = (GOLD, NAV, "#f5d89f") if self.practice_mode else (NAV_CONTROL, NAV_TEXT, HOVER)
+        self.practice_button.normal_color = pb_normal
+        self.practice_button.configure(bg=pb_normal, fg=pb_fg, activebackground=pb_hover, activeforeground=pb_fg)
 
         flipped = self._board_flipped()
+        if self.practice_mode:
+            self.history_card.pack_forget()
+            self.practice_panel.pack(fill="both", expand=True)
+            self._set_active(self.practice_turn_buttons, self.practice_turn)
+            er_sel = self.practice_brush == EMPTY
+            er_normal, er_fg, er_hover = (GOLD, NAV, "#f5d89f") if er_sel else (SOFT, INK, HOVER)
+            self.eraser_button.normal_color = er_normal
+            self.eraser_button.configure(bg=er_normal, fg=er_fg, activebackground=er_hover, activeforeground=er_fg)
+            self._redraw_palette()
+            ply = CANNON_UNLOCK_PLY if self.practice_cannon_open.get() else 0
+            valid_board, err = validate_custom_position(
+                self.practice_cells, self.practice_turn, balanced=self.balanced, ply=ply
+            )
+            if err is not None:
+                self.practice_status.configure(text=err, fg=EAST)
+                self.practice_start_button.configure(state="disabled", cursor="", bg=self.practice_start_button.normal_color)
+            else:
+                self.practice_status.configure(text="Thế cờ hợp lệ · Bấm để bắt đầu chơi.", fg=WEST)
+                self.practice_start_button.configure(state="normal")
+            chess_mark = "♔" if self.chess_color == "white" else "♚"
+            xiangqi_mark = "將" if self.xiangqi_color == "black" else "帥"
+            for seat_side, (bar, mark_label, name, status, accent) in self.seats.items():
+                seat_row = (2 if seat_side == CHESS else 0) if flipped else (0 if seat_side == CHESS else 2)
+                bar.grid(row=seat_row, column=0, sticky="ew", padx=10, pady=(6, 0))
+                mark_label.configure(text=chess_mark if seat_side == CHESS else xiangqi_mark)
+                text = SIDE_NAMES[seat_side]
+                if self.vs_bot:
+                    text += " · " + ("Bạn" if seat_side == self.human else "Máy")
+                name.configure(text=text)
+                active = seat_side == self.practice_turn
+                status.configure(text="Đi trước" if active else "")
+                accent.configure(bg=status.cget("fg") if active else BORDER)
+            side_color, tint = (WEST, WEST_TINT) if self.practice_turn == CHESS else (EAST, EAST_TINT)
+            self.turn_icon.itemconfigure(self.icon_tile, fill=tint)
+            self.turn_icon.itemconfigure(
+                self.icon_piece,
+                image=self.view.western_image(WK, 36, self.chess_color),
+                state="normal" if self.practice_turn == CHESS else "hidden",
+            )
+            self.turn_icon.itemconfigure(
+                self.icon_mark,
+                text="" if self.practice_turn == CHESS else xiangqi_mark,
+                fill=side_color, font=(self.chinese_font, -25, "bold"),
+            )
+            self.turn_context.configure(text="PHÒNG TẬP")
+            self.turn_label.configure(text="Xếp thế cờ", fg=GOLD)
+            brush_name = "Xóa quân" if self.practice_brush == EMPTY else f"{PIECE_NAMES[self.practice_brush]} ({SIDE_NAMES[SIDE[self.practice_brush]]})"
+            self.status_label.configure(text=f"Đang chọn: {brush_name}", fg=MUTED)
+            preview_board = Board(balanced=self.balanced)
+            occupied = frozenset(sq for sq in SQUARES if self.practice_cells[sq])
+            self.view.show_position(
+                preview_board, None, frozenset(), None, None, occupied,
+                projected=self.practice_cells, premoves=(), show_targets=False,
+                flipped=flipped, chess_color=self.chess_color, xiangqi_color=self.xiangqi_color,
+                editing=True,
+            )
+            return
+        self.practice_panel.pack_forget()
+        self.history_card.pack(fill="both", expand=True)
+
         side = self.board.turn
         opponent = self._opponent_side()
         if self.threat_source is not None:
@@ -676,6 +961,8 @@ class GameApp:
         return 2 if len(self.record) >= 2 else 0
 
     def undo(self):
+        if self.practice_mode:
+            return
         count = self._undo_count()
         if not count:
             return

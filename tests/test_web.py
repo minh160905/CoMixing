@@ -2,7 +2,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from api.game import client_config, game_state
-from co_xam.board import Board, WK, WESTERN_PALACE, square
+from co_xam.board import Board, EMPTY, SIZE, WK, WQ, XK, XP, WESTERN_PALACE, square
 from co_xam.search import SearchResult
 
 
@@ -47,3 +47,24 @@ class WebGame(TestCase):
         cannon = str(square(6, 1))
         # Left cannon uses right cannon at (6, 7) as a friendly screen to threaten (6, 8).
         self.assertEqual(start["threats"][cannon], [square(6, 8)])
+
+    def test_custom_practice_setup_state_and_moves(self):
+        cells = [EMPTY] * SIZE
+        cells[square(0, 4)] = WK
+        cells[square(8, 4)] = XK
+        cells[square(5, 4)] = XP
+        cells[square(2, 2)] = WQ
+        setup = {"cells": cells, "turn": 0, "ply": 5}
+        state = game_state({"rules": "classic", "setup": setup})
+        self.assertEqual(state["turn"], 0)
+        move = [square(2, 2), square(2, 3), 0]
+        self.assertIn(move, state["legal"])
+        after = game_state({"rules": "classic", "setup": setup, "action": "move", "move": move})
+        self.assertEqual(after["cells"][square(2, 3)], WQ)
+        self.assertEqual(after["turn"], 1)
+
+        # Invalid setup (facing royals) is rejected
+        bad = cells.copy()
+        bad[square(5, 4)] = EMPTY
+        with self.assertRaises(ValueError):
+            game_state({"rules": "classic", "setup": {"cells": bad, "turn": 0, "ply": 5}})

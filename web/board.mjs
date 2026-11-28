@@ -77,7 +77,9 @@ export class BoardView {
       cells: [], candidates: new Set(), targets: new Set(), premoves: [], palace: [],
       flipped: false, chessColor: "white", xiangqiColor: "red",
       threatSource: null, threatTargets: new Set(), threatCaptures: new Set(),
+      editing: false,
     };
+    this.palettePreview = null;
     this.highlights = new Map();
     this.arrows = new Map();
     this.gesture = null;
@@ -134,6 +136,36 @@ export class BoardView {
     return [(event.clientX - rect.left) * WIDTH / rect.width, (event.clientY - rect.top) * HEIGHT / rect.height];
   }
 
+  squareAtClient(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    const x = (clientX - rect.left) * WIDTH / rect.width;
+    const y = (clientY - rect.top) * HEIGHT / rect.height;
+    return at(x, y, Boolean(this.frame.flipped), this.isMirrorX());
+  }
+
+  setPalettePreview(piece, clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    if (!piece || clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      if (this.palettePreview) {
+        this.palettePreview = null;
+        this.draw();
+      }
+      return;
+    }
+    const x = (clientX - rect.left) * WIDTH / rect.width;
+    const y = (clientY - rect.top) * HEIGHT / rect.height;
+    const square = at(x, y, Boolean(this.frame.flipped), this.isMirrorX());
+    this.palettePreview = {piece, x, y, square};
+    this.draw();
+  }
+
+  clearPalettePreview() {
+    if (!this.palettePreview) return;
+    this.palettePreview = null;
+    this.draw();
+  }
+
   press(event) {
     if (this.gesture || (event.button !== 0 && event.button !== 2)) return;
     event.preventDefault();
@@ -151,18 +183,18 @@ export class BoardView {
     const square = at(x, y, Boolean(this.frame.flipped), this.isMirrorX());
     const g = this.gesture;
     if (!g) {
-      const {candidates, targets} = this.frame;
-      this.canvas.style.cursor = candidates.has(square) || targets.has(square) ? "pointer" : "";
+      const {candidates, targets, editing} = this.frame;
+      this.canvas.style.cursor = (editing && square !== null) || candidates.has(square) || targets.has(square) ? "pointer" : "";
       return;
     }
     if (g.id !== event.pointerId) return;
     if (g.button === 2) {
-      if (g.hover !== square) {
+      if (!this.frame.editing && g.hover !== square) {
         g.hover = square;
         this.draw();
       }
     } else if (this.frame.candidates.has(g.origin) && (g.drag || Math.hypot(x - g.x, y - g.y) > .12)) {
-      if (!g.drag) this.callbacks.grab(g.origin);
+      if (!g.drag && !this.frame.editing) this.callbacks.grab(g.origin);
       g.drag = [x, y];
       this.draw();
     }
@@ -173,6 +205,16 @@ export class BoardView {
     if (!g || g.id !== event.pointerId) return;
     this.gesture = null;
     const square = at(...this.pointer(event), Boolean(this.frame.flipped), this.isMirrorX());
+    if (this.frame.editing) {
+      if (g.button === 0) {
+        if (g.drag) this.callbacks.editDrop?.(g.origin, square);
+        else this.callbacks.editClick?.(square);
+      } else if (g.button === 2 && square !== null && square === g.origin) {
+        this.callbacks.editDelete?.(square);
+      }
+      this.draw();
+      return;
+    }
     if (g.button === 0) {
       this.callbacks.choose(square, Boolean(g.drag));
     } else if (square !== null && g.origin !== null) {
@@ -422,9 +464,19 @@ export class BoardView {
       this.arrow(src, dst, MARKS[color][0]);
     }
     const trace = this.gesture;
-    if (trace?.button === 2 && trace.origin != null && trace.hover != null && trace.origin !== trace.hover) {
+    if (!this.frame.editing && trace?.button === 2 && trace.origin != null && trace.hover != null && trace.origin !== trace.hover) {
       this.arrow(trace.origin, trace.hover, "#c48435");
     }
     if (drag && cells[trace.origin]) this.piece(cells[trace.origin], ...drag);
+    if (this.palettePreview) {
+      const {piece, square} = this.palettePreview;
+      if (square != null) {
+        const [px, py] = point(square, flipped, mirrorX);
+        ctx.setLineDash([.08, .06]);
+        this.disc(px, py, .46, null, "#f0ca83", .05);
+        ctx.setLineDash([]);
+        this.piece(piece, px, py);
+      }
+    }
   }
 }
