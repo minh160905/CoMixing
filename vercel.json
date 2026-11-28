@@ -6,7 +6,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/game.py": {
-      "maxDuration": 15,
+      "maxDuration": 25,
       "includeFiles": "co_xam/**",
       "excludeFiles": "{tests/**,web/**,dist/**}"
     }

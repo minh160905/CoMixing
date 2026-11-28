@@ -150,15 +150,12 @@ function project(game) {
 
 function speculativeMoves(cells, rights, src) {
   const piece = cells[src];
-  const balancedKing = piece === WK && settings.rules === "balanced";
-  const insidePalace = (sq) => config.palace.includes(sq);
-  if (balancedKing && !insidePalace(src)) return [];
-  const moves = config.geometry[piece][src]
-    .filter(([dst]) => !balancedKing || insidePalace(dst))
-    .map(([dst, promotion]) => [src, dst, promotion]);
+  const balanced = settings.rules === "balanced";
+  const geometry = balanced ? config.balancedGeometry : config.geometry;
+  const moves = geometry[piece][src].map(([dst, promotion]) => [src, dst, promotion]);
   if (piece === WK) for (const castle of config.castles) {
     if (castle.move[0] === src && (rights & castle.right) && cells[castle.rook[0]] === WR
-        && (!balancedKing || insidePalace(castle.move[1]))) moves.push(castle.move);
+        && (!balanced || config.palace.includes(castle.move[1]))) moves.push(castle.move);
   }
   return moves;
 }
@@ -773,7 +770,7 @@ async function start() {
   error = "";
   render();
   try {
-    config = await responseJSON(await fetch("/api/game"));
+    config = await responseJSON(await fetch("/api/game", {cache: "no-cache"}));
     request("state", []);
   } catch (failure) {
     error = "Không tải được bộ luật trò chơi.";

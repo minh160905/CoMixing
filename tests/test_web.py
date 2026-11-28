@@ -2,8 +2,8 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from api.game import client_config, game_state
-from co_xam.board import Board, EMPTY, SIZE, WK, WQ, XK, XP, WESTERN_PALACE, square
-from co_xam.search import SearchResult
+from co_xam.board import Board, WK, WP, WR, XA, XE, WESTERN_PALACE, square
+from co_xam.search import EXPERT_SECONDS, SearchResult
 
 
 class WebGame(TestCase):
@@ -19,12 +19,14 @@ class WebGame(TestCase):
 
     def test_bot_reports_the_move_from_the_shared_engine(self):
         move = Board().legal_moves()[0]
-        with patch("api.game.Search") as search:
-            search.return_value.analyze.return_value = SearchResult(move, 0, 3, 52, 1.0)
-            result = game_state({"action": "bot", "seconds": 1})
-        self.assertEqual(result["records"][0]["move"], [move.src, move.dst, move.promotion])
-        self.assertEqual(result["bot"], {"depth": 3, "nodes": 52})
-        self.assertEqual(search.return_value.analyze.call_args.args[1], 1)
+        for seconds, expert in ((1, False), (EXPERT_SECONDS, True)):
+            with self.subTest(seconds=seconds), patch("api.game.Search") as search:
+                search.return_value.analyze.return_value = SearchResult(move, 0, 3, 52, 1.0)
+                result = game_state({"action": "bot", "seconds": seconds})
+                self.assertEqual(result["records"][0]["move"], [move.src, move.dst, move.promotion])
+                self.assertEqual(result["bot"], {"depth": 3, "nodes": 52})
+                self.assertEqual(search.call_args.kwargs["expert"], expert)
+                self.assertEqual(search.return_value.analyze.call_args.args[1], seconds)
 
     def test_invalid_request_or_move_is_rejected(self):
         for request in ([], {"rules": "unknown"}, {"history": [[26, 500, 0]]},
@@ -36,9 +38,31 @@ class WebGame(TestCase):
     def test_browser_gets_shared_geometry_and_palace(self):
         config = client_config()
         self.assertEqual(set(config["palace"]), WESTERN_PALACE)
-        self.assertIn([square(3, 5), 0], config["geometry"][WK][square(2, 5)])
+        classic, balanced = config["geometry"], config["balancedGeometry"]
+        self.assertIn([square(3, 5), 0], classic[WK][square(2, 5)])
+        self.assertNotIn([square(3, 5), 0], balanced[WK][square(2, 5)])
         self.assertNotIn(square(3, 5), config["palace"])
         self.assertEqual(config["maxPremoves"], 5)
+        for piece, origin, destination, allowed_in_balanced in (
+            (XE, square(5, 4), square(3, 2), True),
+            (XA, square(6, 3), square(5, 3), True),
+            (WR, square(5, 4), square(5, 7), False),
+            (WP, square(7, 2), square(8, 2), True),
+            (WP, square(8, 2), square(8, 1), True),
+        ):
+            with self.subTest(piece=piece, origin=origin):
+                self.assertEqual([destination, 0] in classic[piece][origin], not allowed_in_balanced)
+                self.assertEqual([destination, 0] in balanced[piece][origin], allowed_in_balanced)
+        self.assertFalse(any(promotion for _, promotion in balanced[WP][square(7, 2)]))
+
+    def test_api_allows_balanced_advisor_step_during_play_and_replay(self):
+        step = [square(8, 3), square(7, 3), 0]
+        with self.assertRaises(ValueError):
+            game_state({"rules": "classic", "action": "move", "move": step})
+        request = {"rules": "balanced"}
+        state = game_state({**request, "action": "move", "move": step})
+        self.assertEqual(state["cells"][step[1]], XA)
+        self.assertEqual(state, game_state({**request, "history": [step]}))
 
     def test_state_reports_piece_threats(self):
         start = game_state({"rules": "classic"})

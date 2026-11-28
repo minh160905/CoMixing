@@ -8,6 +8,7 @@ EMPTY, WK, WQ, WR, WB, WN, WP, XK, XR, XC, XN, XE, XA, XP = range(14)
 SIDE = (-1,) + (CHESS,) * 6 + (XIANGQI,) * 7
 FILES, RANKS = 9, 9
 SIZE = FILES * RANKS
+SQUARE_BITS = tuple(1 << sq for sq in range(SIZE))
 RIVER = 4
 PALACE_CENTER = 7 * FILES + 4
 WESTERN_PALACE = frozenset(row * FILES + col for row in range(3) for col in range(2, 6))
@@ -55,14 +56,14 @@ def _inside_palace(sq):
     return row >= 6 and 3 <= col <= 5
 
 
-def _jump_routes(piece, src):
+def _jump_routes(piece, src, balanced):
     row, col = divmod(src, FILES)
     if piece in (WK, XK):
         directions = ORTHOGONAL + DIAGONAL
     elif piece in (WN, XN):
         directions = KNIGHT
     elif piece == XA:
-        directions = DIAGONAL
+        directions = ORTHOGONAL + DIAGONAL if balanced else DIAGONAL
     elif piece == XE:
         directions = tuple((2 * dr, 2 * dc) for dr, dc in DIAGONAL)
     elif piece == XP:
@@ -71,22 +72,22 @@ def _jump_routes(piece, src):
         if row == RIVER - 1:
             # The crossing uses only the empty forward landings.
             return ()
-        directions = ((1, -1), (1, 1))
+        directions = ((0, -1), (0, 1)) if balanced and row == RANKS - 1 else ((1, -1), (1, 1))
     else:
         return ()
 
     routes = {}
     for dr, dc in directions:
         for dst in _landings(row, col, dr, dc):
-            if piece in (XK, XA):
+            if piece == XK or (piece == XA and (not balanced or dr and dc)):
                 if not _inside_palace(src) or not _inside_palace(dst):
                     continue
-                if piece == XK and dr and dc and PALACE_CENTER not in (src, dst):
+                if (piece == XK or balanced) and dr and dc and PALACE_CENTER not in (src, dst):
                     continue
-            if piece == XE and (row < RIVER or dst // FILES < RIVER or row + dr < RIVER):
-                continue
             blocker = -1
-            if piece == XE:
+            if piece == XE and not balanced:
+                if row < RIVER or dst // FILES < RIVER or row + dr < RIVER:
+                    continue
                 blocker = square(row + dr // 2, col + dc // 2)
             elif piece in (WN, XN) and row >= RIVER:
                 leg_row = row + (dr // 2 if abs(dr) == 2 else 0)
@@ -102,25 +103,35 @@ def _jump_routes(piece, src):
     return tuple(routes)
 
 
-JUMPS = [[()] * SIZE for _ in SIDE]
-MULTIPLE_ROUTES = [[False] * SIZE for _ in SIDE]
-FORWARD = [()] * SIZE
-RAYS = [[()] * SIZE for _ in SIDE]
-JUMP_ATTACKS = [[[] for _ in range(SIZE)] for _ in range(2)]
-RAY_ATTACKS = [[[] for _ in range(SIZE)] for _ in range(2)]
+FORWARD = tuple(_landings(*divmod(src, FILES), 1, 0) if src in SQUARES else () for src in range(SIZE))
 
 
-def _build_geometry():
+@dataclass(frozen=True, slots=True)
+class _Geometry:
+    jumps: list[list[tuple[tuple[int, int], ...]]]
+    multiple_routes: list[list[bool]]
+    rays: list[list[tuple[tuple[tuple[int, ...], ...], ...]]]
+    jump_attacks: list[list[list[tuple[int, int, int]]]]
+    ray_attacks: list[list[list[tuple[int, int, int]]]]
+    direct_checks: list[list[list[int]]]
+
+
+def _build_geometry(*, balanced):
+    jumps = [[()] * SIZE for _ in SIDE]
+    multiple_routes = [[False] * SIZE for _ in SIDE]
+    rays = [[()] * SIZE for _ in SIDE]
+    jump_attacks = [[[] for _ in range(SIZE)] for _ in range(2)]
+    ray_attacks = [[[] for _ in range(SIZE)] for _ in range(2)]
     directional_pieces = (WQ, WR, WB, XR, XC)
+    limited_sliders = (WQ, WR, WB) if balanced else (WQ, WB)
     for src in SQUARES:
         row, col = divmod(src, FILES)
-        FORWARD[src] = _landings(row, col, 1, 0)
         for piece in range(1, len(SIDE)):
-            JUMPS[piece][src] = _jump_routes(piece, src)
-            destinations = JUMPS[piece][src]
-            MULTIPLE_ROUTES[piece][src] = len({dst for dst, _ in destinations}) < len(destinations)
+            destinations = _jump_routes(piece, src, balanced)
+            jumps[piece][src] = destinations
+            multiple_routes[piece][src] = len({dst for dst, _ in destinations}) < len(destinations)
             for dst, blocker in destinations:
-                JUMP_ATTACKS[SIDE[piece]][dst].append((src, piece, blocker))
+                jump_attacks[SIDE[piece]][dst].append((src, piece, blocker))
         for dr, dc in ORTHOGONAL + DIAGONAL:
             straight = dr == 0 or dc == 0
             ray = []
@@ -136,31 +147,26 @@ def _build_geometry():
             for piece in directional_pieces:
                 if (straight and piece == WB) or (not straight and piece in (WR, XR, XC)):
                     continue
-                limit = 2 if row >= RIVER and piece in (WQ, WB) else len(ray)
-                RAYS[piece][src] += (tuple(ray[:limit]),)
-            path = ()
+                limit = 2 if row >= RIVER and piece in limited_sliders else len(ray)
+                rays[piece][src] += (tuple(ray[:limit]),)
+            path = 0
             for index, group in enumerate(ray):
-                western_mask = 1 << WR if straight else 0
-                if row < RIVER or index < 2:
+                beyond_two = row >= RIVER and index >= 2
+                western_mask = 1 << WR if straight and not (balanced and beyond_two) else 0
+                if not beyond_two:
                     western_mask |= (1 << WQ) | (0 if straight else 1 << WB)
                 for dst in group:
                     if western_mask:
-                        RAY_ATTACKS[CHESS][dst].append((src, western_mask, path))
+                        ray_attacks[CHESS][dst].append((src, western_mask, path))
                     if straight:
-                        RAY_ATTACKS[XIANGQI][dst].append((src, (1 << XR) | (1 << XC), path))
-                path += group
-    for side in range(2):
-        for routes in RAY_ATTACKS[side]:
-            routes.sort(key=lambda route: len(route[2]))
-
-
-_build_geometry()
-
-PALACE_KING_JUMPS = tuple(
-    tuple(route for route in JUMPS[WK][src] if route[0] in WESTERN_PALACE)
-    if src in WESTERN_PALACE else ()
-    for src in range(SIZE)
-)
+                        ray_attacks[XIANGQI][dst].append((src, (1 << XR) | (1 << XC), path))
+                for dst in group:
+                    path |= SQUARE_BITS[dst]
+    for attacks in ray_attacks:
+        for routes in attacks:
+            routes.sort(key=lambda route: route[2].bit_count())
+    direct_checks = _direct_attack_squares(jump_attacks, ray_attacks)
+    return _Geometry(jumps, multiple_routes, rays, jump_attacks, ray_attacks, direct_checks)
 
 _rng = Random(0xC0A9)
 _PIECE_KEYS = tuple(tuple(_rng.getrandbits(64) for _ in range(SIZE)) for _ in SIDE)
@@ -169,6 +175,28 @@ _CASTLE_KEYS = tuple(_rng.getrandbits(64) for _ in range(4))
 _OPENING_KEYS = tuple(_rng.getrandbits(64) for _ in range(CANNON_UNLOCK_PLY + 1))
 _BALANCED_KEY = _rng.getrandbits(64)
 _PIECE_BITS = tuple(1 << piece if piece else 0 for piece in range(len(SIDE)))
+
+
+def _direct_attack_squares(jump_attacks, ray_attacks):
+    squares = [[[0] * len(SIDE) for _ in range(SIZE)] for _ in range(2)]
+    for side, targets in enumerate(squares):
+        sliders = (WQ, WR, WB) if side == CHESS else (XR, XC)
+        for target, pieces in enumerate(targets):
+            for src, piece, _ in jump_attacks[side][target]:
+                pieces[piece] |= SQUARE_BITS[src]
+            for src, mask, _ in ray_attacks[side][target]:
+                for piece in sliders:
+                    if mask & _PIECE_BITS[piece]:
+                        pieces[piece] |= SQUARE_BITS[src]
+    return squares
+
+
+GEOMETRIES = (_build_geometry(balanced=False), _build_geometry(balanced=True))
+PALACE_KING_JUMPS = tuple(
+    tuple(route for route in jumps if route[0] in WESTERN_PALACE)
+    if src in WESTERN_PALACE else ()
+    for src, jumps in enumerate(GEOMETRIES[False].jumps[WK])
+)
 _HISTORY_SALT = 0x9E3779B97F4A7C15
 _MASK_64 = (1 << 64) - 1
 
@@ -196,6 +224,7 @@ class Undo:
     key: int
     history_key: int
     previous_counts: dict | None
+    occupied: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,10 +289,12 @@ class Board:
     def __init__(self, pieces=None, turn=XIANGQI, rights=None, ply=0, *, balanced=False):
         starting = pieces is None
         self.cells = [EMPTY] * SIZE
+        self.occupied = 0
         self.positions = [set(), set()]
         self.kings = [-1, -1]
         self.turn = turn
         self.balanced = balanced
+        self.geometry = GEOMETRIES[balanced]
         self.rights = (QUEENSIDE | KINGSIDE if starting else 0) if rights is None else rights
         if balanced:
             self.rights &= QUEENSIDE
@@ -284,6 +315,8 @@ class Board:
             self.key ^= _SIDE_KEY
         for sq, piece in pieces.items():
             self.cells[sq] = piece
+            if piece:
+                self.occupied |= SQUARE_BITS[sq]
             self.positions[SIDE[piece]].add(sq)
             self.key ^= _PIECE_KEYS[piece][sq]
             if piece in (WK, XK):
@@ -294,10 +327,12 @@ class Board:
     def copy(self):
         snapshot = object.__new__(Board)
         snapshot.cells = self.cells.copy()
+        snapshot.occupied = self.occupied
         snapshot.positions = [p.copy() for p in self.positions]
         snapshot.kings = self.kings.copy()
         snapshot.turn = self.turn
         snapshot.balanced = self.balanced
+        snapshot.geometry = self.geometry
         snapshot.rights = self.rights
         snapshot.ply = self.ply
         snapshot.quiet = self.quiet
@@ -324,36 +359,46 @@ class Board:
         return True
 
     def is_attacked(self, target, by_side):
-        cells = self.cells
-        for src, piece, blocker in JUMP_ATTACKS[by_side][target]:
+        cells, occupied = self.cells, self.occupied
+        geometry = self.geometry
+        for src, piece, blocker in geometry.jump_attacks[by_side][target]:
             if cells[src] == piece and (blocker < 0 or not cells[blocker]):
                 if self.balanced and piece == WK and (src not in WESTERN_PALACE or target not in WESTERN_PALACE):
                     continue
                 return True
         if by_side == CHESS:
-            for src, mask, path in RAY_ATTACKS[CHESS][target]:
-                if mask & _PIECE_BITS[cells[src]] and not any(cells[sq] for sq in path):
+            for src, mask, path in geometry.ray_attacks[CHESS][target]:
+                if mask & _PIECE_BITS[cells[src]] and not (path & occupied):
                     return True
         else:
             restricted = self.ply < CANNON_UNLOCK_PLY
-            for src, mask, path in RAY_ATTACKS[XIANGQI][target]:
+            for src, mask, path in geometry.ray_attacks[XIANGQI][target]:
                 piece = cells[src]
                 if not (mask & _PIECE_BITS[piece]):
                     continue
+                screens = path & occupied
                 if piece == XR:
-                    if not any(cells[sq] for sq in path):
+                    if not screens:
                         return True
-                else:
-                    screen = EMPTY
-                    for sq in path:
-                        if cells[sq]:
-                            if screen:
-                                break
-                            screen = cells[sq]
-                    else:
-                        if screen and (not restricted or SIDE[screen] == XIANGQI):
-                            return True
+                elif screens and not (screens & (screens - 1)):
+                    if not restricted or SIDE[cells[screens.bit_length() - 1]] == XIANGQI:
+                        return True
         return False
+
+    def check_candidates(self):
+        """Return masks for direct and discovered checks by the side to move."""
+        side = self.turn
+        target = self.kings[1 - side]
+        cells = self.cells
+        blockers = 0
+        geometry = self.geometry
+        for src, piece, blocker in geometry.jump_attacks[side][target]:
+            if blocker >= 0 and cells[src] == piece:
+                blockers |= SQUARE_BITS[blocker]
+        for src, mask, path in geometry.ray_attacks[side][target]:
+            if mask & _PIECE_BITS[cells[src]]:
+                blockers |= path
+        return geometry.direct_checks[side][target], blockers
 
     def in_check(self, side=None):
         side = self.turn if side is None else side
@@ -367,7 +412,8 @@ class Board:
             return frozenset()
         side = SIDE[piece]
         targets = set()
-        jumps = PALACE_KING_JUMPS[src] if self.balanced and piece == WK else JUMPS[piece][src]
+        geometry = self.geometry
+        jumps = PALACE_KING_JUMPS[src] if self.balanced and piece == WK else geometry.jumps[piece][src]
         for dst, blocker in jumps:
             if blocker >= 0 and cells[blocker]:
                 continue
@@ -375,7 +421,7 @@ class Board:
             if not target or SIDE[target] != side:
                 targets.add(dst)
         restricted = self.ply < CANNON_UNLOCK_PLY
-        for ray in RAYS[piece][src]:
+        for ray in geometry.rays[piece][src]:
             screen = EMPTY
             for group in ray:
                 for dst in group:
@@ -406,37 +452,39 @@ class Board:
         cells = self.cells
         side = self.turn
         opposing_king = self.kings[1 - side]
+        geometry, balanced = self.geometry, self.balanced
         for src in tuple(self.positions[side]):
             piece = cells[src]
             if piece == WP:
                 for dst in FORWARD[src]:
                     if cells[dst]:
                         continue
-                    if dst // FILES == RANKS - 1:
+                    if not balanced and dst // FILES == RANKS - 1:
                         yield from (Move(src, dst, promotion) for promotion in PROMOTIONS)
                     elif not tactical_only:
                         yield Move(src, dst)
                         if src // FILES == 1 and not cells[dst + FILES]:
                             yield Move(src, dst + FILES)
-            used_destinations = set() if MULTIPLE_ROUTES[piece][src] else None
-            jumps = PALACE_KING_JUMPS[src] if self.balanced and piece == WK else JUMPS[piece][src]
+            used_destinations = set() if geometry.multiple_routes[piece][src] else None
+            jumps = PALACE_KING_JUMPS[src] if balanced and piece == WK else geometry.jumps[piece][src]
+            pawn_captures_only = piece == WP and (not balanced or src // FILES != RANKS - 1)
             for dst, blocker in jumps:
                 target = cells[dst]
                 if dst == opposing_king or target and SIDE[target] == side:
                     continue
-                if (blocker >= 0 and cells[blocker]) or (not target and (tactical_only or piece == WP)):
+                if (blocker >= 0 and cells[blocker]) or (not target and (tactical_only or pawn_captures_only)):
                     continue
                 if used_destinations is not None:
                     if dst in used_destinations:
                         continue
                     used_destinations.add(dst)
-                if piece == WP and dst // FILES == RANKS - 1:
+                if piece == WP and not balanced and dst // FILES == RANKS - 1:
                     yield from (Move(src, dst, promotion) for promotion in PROMOTIONS)
                 else:
                     yield Move(src, dst)
             # On the bank, adjacent queen rays can project to the same point.
             ray_destinations = set() if piece == WQ and src // FILES in (RIVER - 1, RIVER) else None
-            for ray in RAYS[piece][src]:
+            for ray in geometry.rays[piece][src]:
                 screen = EMPTY
                 for group in ray:
                     for dst in group:
@@ -471,9 +519,10 @@ class Board:
         side = self.turn
         quiet = not capture and piece not in (WP, XP)
         reversible = quiet or (not capture and not move.promotion and src // FILES == dst // FILES)
-        undo = Undo(piece, capture, self.rights, self.quiet, self.key, self.history_key, None)
+        undo = Undo(piece, capture, self.rights, self.quiet, self.key, self.history_key, None, self.occupied)
         placed = move.promotion or piece
         cells[src], cells[dst] = EMPTY, placed
+        self.occupied = (self.occupied ^ SQUARE_BITS[src]) | SQUARE_BITS[dst]
         self.positions[side].remove(src)
         self.positions[side].add(dst)
         key = self.key ^ _SIDE_KEY ^ _PIECE_KEYS[piece][src] ^ _PIECE_KEYS[placed][dst]
@@ -491,6 +540,7 @@ class Board:
         if move.rook_from >= 0:
             rook_from, rook_to = move.rook_from, move.rook_to
             cells[rook_from], cells[rook_to] = EMPTY, WR
+            self.occupied ^= SQUARE_BITS[rook_from] | SQUARE_BITS[rook_to]
             self.positions[side].remove(rook_from)
             self.positions[side].add(rook_to)
             key ^= _PIECE_KEYS[WR][rook_from] ^ _PIECE_KEYS[WR][rook_to]
@@ -515,7 +565,9 @@ class Board:
         return undo
 
     def push_legal(self, move):
-        if self.balanced and self.cells[move.src] == WK and move.dst not in WESTERN_PALACE:
+        if self.balanced and (move.promotion or (
+                self.cells[move.src] == WK and move.dst not in WESTERN_PALACE
+        )):
             return None
         undo = self.push(move)
         if self.in_check(1 - self.turn) or self.royals_face():
@@ -547,6 +599,7 @@ class Board:
             self.positions[side].add(move.rook_from)
         self.turn, self.rights, self.quiet = side, undo.rights, undo.quiet
         self.key, self.history_key = undo.key, undo.history_key
+        self.occupied = undo.occupied
         self.ply -= 1
 
     def legal_moves(self):

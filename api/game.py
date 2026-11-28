@@ -9,11 +9,11 @@ from co_xam.board import (
     CHECKMATE, STALEMATE, REPETITION, NO_PROGRESS, coordinates, validate_custom_position,
 )
 from co_xam.premove import _CASTLES, MAX_PREMOVES, possible_moves
-from co_xam.search import Search
+from co_xam.search import EXPERT_SECONDS, Search
 
 MAX_BODY = 96 * 1024
 MAX_HISTORY = 4096
-TIME_OPTIONS = (1, 3, 8)
+TIME_OPTIONS = (1, 3, 8, EXPERT_SECONDS)
 REASONS = {
     CHECKMATE: "Chiếu hết",
     STALEMATE: "Hết nước hợp lệ",
@@ -26,24 +26,30 @@ def move_key(move):
     return [move.src, move.dst, move.promotion]
 
 
-@cache
-def client_config():
+def _premove_geometry(*, balanced):
     cells = [0] * SIZE
     geometry = [None]
     for piece in range(1, len(SIDE)):
         routes = [[] for _ in cells]
         for src in SQUARES:
             cells[src] = piece
-            routes[src] = [[move.dst, move.promotion] for move in possible_moves(cells, 0, src)]
+            choices = possible_moves(cells, 0, src, balanced=balanced)
+            routes[src] = [[move.dst, move.promotion] for move in choices]
             cells[src] = 0
         geometry.append(routes)
+    return geometry
+
+
+@cache
+def client_config():
     return {
         "pieces": PIECE_NAMES,
         "sides": SIDE_NAMES,
         "sideByPiece": SIDE,
         "coords": {sq: coordinates(sq) for sq in SQUARES},
         "palace": sorted(WESTERN_PALACE),
-        "geometry": geometry,
+        "geometry": _premove_geometry(balanced=False),
+        "balancedGeometry": _premove_geometry(balanced=True),
         "castles": [
             {"right": right, "move": move_key(move), "rook": [move.rook_from, move.rook_to]}
             for right, move in _CASTLES
@@ -81,7 +87,7 @@ def game_state(request):
         raise ValueError("Lịch sử ván cờ không hợp lệ.")
     seconds = request.get("seconds", 3)
     if action == "bot" and (type(seconds) is not int or seconds not in TIME_OPTIONS):
-        raise ValueError("Thời gian bot phải là 1, 3 hoặc 8 giây.")
+        raise ValueError(f"Thời gian bot phải là 1, 3, 8 hoặc {EXPERT_SECONDS} giây.")
 
     setup = request.get("setup")
     if setup is None:
@@ -113,7 +119,9 @@ def game_state(request):
         if len(records) >= MAX_HISTORY:
             raise ValueError("Ván cờ đã đạt giới hạn lịch sử.")
         if action == "bot":
-            result = Search(table_bits=15).analyze(board, seconds)
+            expert = seconds == EXPERT_SECONDS
+            engine = Search(table_bits=17 if expert else 15, expert=expert)
+            result = engine.analyze(board, seconds)
             move = result.move
             bot = {"depth": result.depth, "nodes": result.nodes}
         else:

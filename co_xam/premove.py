@@ -1,8 +1,8 @@
 """Speculative player input that is checked against each real position."""
 
 from .board import (
-    EMPTY, FILES, FORWARD, JUMPS, KINGSIDE, PROMOTIONS, QUEENSIDE,
-    PALACE_KING_JUMPS, RANKS, RAYS, WESTERN_PALACE, WK, WP, WR, Move,
+    EMPTY, FILES, FORWARD, GEOMETRIES, KINGSIDE, PROMOTIONS, QUEENSIDE,
+    PALACE_KING_JUMPS, RANKS, WESTERN_PALACE, WK, WP, WR, Move,
 )
 
 MAX_PREMOVES = 5
@@ -17,9 +17,10 @@ def possible_moves(cells, rights, src, *, balanced=False):
     piece = cells[src]
     if not piece:
         return ()
-    jumps = PALACE_KING_JUMPS[src] if balanced and piece == WK else JUMPS[piece][src]
+    geometry = GEOMETRIES[balanced]
+    jumps = PALACE_KING_JUMPS[src] if balanced and piece == WK else geometry.jumps[piece][src]
     destinations = {dst for dst, _ in jumps}
-    for ray in RAYS[piece][src]:
+    for ray in geometry.rays[piece][src]:
         for group in ray:
             destinations.update(group)
     if piece == WP:
@@ -28,7 +29,7 @@ def possible_moves(cells, rights, src, *, balanced=False):
             destinations.add(src + 2 * FILES)
     choices = []
     for dst in sorted(destinations):
-        if piece == WP and dst // FILES == RANKS - 1:
+        if piece == WP and not balanced and dst // FILES == RANKS - 1:
             choices.extend(Move(src, dst, promotion) for promotion in PROMOTIONS)
         else:
             choices.append(Move(src, dst))

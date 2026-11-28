@@ -19,7 +19,7 @@ from .board_view import (
     WEST_PIECES, valid_piece_colors,
 )
 from .premove import MAX_PREMOVES, PremoveQueue, possible_moves
-from .search import Search
+from .search import EXPERT_SECONDS, Search
 
 APP_BG = "#101917"
 PAPER = "#1c2b27"
@@ -49,15 +49,19 @@ RULES = (
     ("Cổ điển và Cân bằng", "Ở bộ luật Cân bằng, Vua cờ vua chỉ đi trong cung 4 × 3, "
      "từ cột c đến f và từ hàng 8 đến 6. Đường viền xanh trên bàn đánh dấu cung Vua. "
      "Vua có thể nhập thành xa nếu đủ điều kiện."),
+    ("Các nước riêng của Cân bằng", "Tượng cờ tướng đi chéo hai bước, được qua sông và bỏ chặn mắt. "
+     "Sĩ được ra khỏi cung bằng nước ngang hoặc dọc một bước, kể cả qua sông. Sĩ chỉ đi chéo trên "
+     "đường kẻ trong cung. Xe cờ vua đi tối đa hai bước khi xuất phát ở phần cờ tướng. "
+     "Tốt cờ vua đến hàng cuối không phong cấp và từ đó chỉ đi hoặc ăn ngang một điểm."),
     ("Qua sông", "Một nước vượt sông dừng ở bờ đến. Ô cờ vua ứng với hai giao điểm "
      "cờ tướng kề nó. Đường kẻ ngoài cùng chỉ có một ô cờ vua tương ứng."),
     ("Hậu, Tượng và Tốt", "Hậu và Tượng cờ vua đi tối đa hai bước khi xuất phát "
      "trên phần cờ tướng. Khi qua sông, Tốt cờ vua chỉ tiến thẳng đến giao điểm trống. "
-     "Trên phần cờ tướng, Tốt cờ vua chỉ đi thẳng và ăn chéo về phía trước. "
-     "Tốt cờ vua phong cấp ở hàng cuối bên kia. Tốt cờ tướng được đi hoặc ăn ngang trên phần cờ vua."),
+     "Trước hàng cuối phần cờ tướng, Tốt cờ vua đi thẳng và ăn chéo về phía trước. "
+     "Ở Cổ điển, Tốt cờ vua phong cấp ở hàng cuối. Tốt cờ tướng được đi hoặc ăn ngang trên phần cờ vua."),
     ("Mã và cung Tướng", "Mã hai bên bị chặn chân khi xuất phát trên phần cờ tướng. "
-     "Trên phần cờ vua, Mã nhảy tự do. Tướng và Sĩ ở trong cung. Tướng được đi chéo một điểm "
-     "theo đường kẻ nối tâm cung với góc. Tượng cờ tướng không qua sông."),
+     "Trên phần cờ vua, Mã nhảy tự do. Tướng ở trong cung và được đi chéo một điểm "
+     "theo đường kẻ nối tâm cung với góc. Ở Cổ điển, Sĩ ở trong cung và Tượng cờ tướng ở phần sân nhà."),
     ("Pháo", "Pháo cần đúng một quân làm ngòi khi ăn quân. Trong ba lượt đầu "
      "của bên cờ tướng, ngòi phải là quân cờ tướng."),
     ("Nhập thành và lộ mặt Tướng", "Vua cờ vua được nhập thành theo luật cờ vua. "
@@ -299,7 +303,9 @@ class GameApp:
             self.bot_panel, "Bạn cầm", (("Cờ vua", CHESS), ("Cờ tướng", XIANGQI)), self.set_human, margin=7
         )
         self.time_buttons = self._options(
-            self.bot_panel, "Thời gian bot", (("1 giây", 1), ("3 giây", 3), ("8 giây", 8)), self.set_time, margin=7
+            self.bot_panel, "Thời gian bot",
+            (("1 giây", 1), ("3 giây", 3), ("8 giây", 8), (f"Chuyên gia · {EXPERT_SECONDS} giây", EXPERT_SECONDS)),
+            self.set_time, margin=7, columns=2,
         )
 
         history = self.history_card = self._card(panel, padx=10)
@@ -543,15 +549,19 @@ class GameApp:
         else:
             self.log_scroll.grid()
 
-    def _options(self, parent, title, entries, setter, *, margin=0):
+    def _options(self, parent, title, entries, setter, *, margin=0, columns=None):
         self._label(parent, title, 9, bold=True).pack(anchor="w", pady=(margin, 3))
         row = tk.Frame(parent, bg=PAPER)
         row.pack(fill="x")
         buttons = {}
+        columns = len(entries) if columns is None else columns
+        for column in range(columns):
+            row.grid_columnconfigure(column, weight=1, uniform="option")
         for index, (text, value) in enumerate(entries):
-            row.grid_columnconfigure(index, weight=1, uniform="option")
+            grid_row, column = divmod(index, columns)
             button = self._button(row, text, lambda setting=value: setter(setting), compact=True)
-            button.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 4, 0))
+            button.grid(row=grid_row, column=column, sticky="ew",
+                        padx=(4 if column else 0, 0), pady=(4 if grid_row else 0, 0))
             buttons[value] = button
         return buttons
 
@@ -607,6 +617,9 @@ class GameApp:
             return
         self._cancel_bot()
         self.think_time = seconds
+        expert = seconds == EXPERT_SECONDS
+        if self.engine.expert != expert:
+            self.engine = Search(expert=expert)
         self._refresh()
         if not self.practice_mode:
             self._maybe_start_bot()
@@ -1016,7 +1029,7 @@ class GameApp:
         if self.job is not None:
             self.job[0].set()
             self.job = None
-            self.engine = Search()
+            self.engine = Search(expert=self.think_time == EXPERT_SECONDS)
 
     def _dialog(self, title):
         dialog = tk.Toplevel(self.root, bg=PAPER)
